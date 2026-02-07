@@ -408,6 +408,175 @@ public class OpenList implements BaseDownload {
     }
 
     /**
+     * 创建目录
+     *
+     * @param path 目录路径
+     */
+    public void mkdir(String path) {
+        try {
+            postApi("fs/mkdir")
+                    .body(GsonStatic.toJson(Map.of(
+                            "path", path
+                    )))
+                    .thenFunction(res -> {
+                        JsonObject jsonObject = GsonStatic.fromJson(res.body(), JsonObject.class);
+                        int code = jsonObject.get("code").getAsInt();
+                        // 200 成功，400 可能目录已存在
+                        if (code != 200 && code != 400) {
+                            log.warn("创建目录失败: {}", jsonObject.get("message").getAsString());
+                        }
+                        return code == 200;
+                    });
+        } catch (Exception e) {
+            log.warn("创建目录异常", e);
+        }
+    }
+
+    /**
+     * 批量重命名文件
+     *
+     * @param dir       目录
+     * @param renameMap 重命名映射 (旧名->新名)
+     */
+    public void batchRename(String dir, Map<String, String> renameMap) {
+        if (renameMap.isEmpty()) {
+            return;
+        }
+
+        List<Map<String, String>> renameObjects = renameMap.entrySet().stream()
+                .map(entry -> Map.of(
+                        "src_name", entry.getKey(),
+                        "new_name", entry.getValue()
+                ))
+                .toList();
+
+        postApi("fs/batch_rename")
+                .body(GsonStatic.toJson(Map.of(
+                        "src_dir", dir,
+                        "rename_objects", renameObjects
+                )))
+                .then(res -> {
+                    JsonObject jsonObject = GsonStatic.fromJson(res.body(), JsonObject.class);
+                    if (jsonObject.get("code").getAsInt() == 200) {
+                        log.info("批量重命名成功，共 {} 个文件", renameObjects.size());
+                    } else {
+                        log.error("批量重命名失败: {}", jsonObject.get("message").getAsString());
+                    }
+                    return res;
+                });
+    }
+
+    /**
+     * 移动文件
+     *
+     * @param srcDir 源目录
+     * @param dstDir 目标目录
+     * @param names  文件名列表
+     */
+    public void move(String srcDir, String dstDir, List<String> names) {
+        postApi("fs/move")
+                .body(GsonStatic.toJson(Map.of(
+                        "src_dir", srcDir,
+                        "dst_dir", dstDir,
+                        "names", names
+                )))
+                .then(HttpResponse::isOk);
+    }
+
+    /**
+     * 复制文件
+     *
+     * @param srcDir 源目录
+     * @param dstDir 目标目录
+     * @param names  文件名列表
+     */
+    public void copy(String srcDir, String dstDir, List<String> names) {
+        postApi("fs/copy")
+                .body(GsonStatic.toJson(Map.of(
+                        "src_dir", srcDir,
+                        "dst_dir", dstDir,
+                        "names", names
+                )))
+                .then(HttpResponse::isOk);
+    }
+
+    /**
+     * 删除文件
+     *
+     * @param dir   目录
+     * @param names 文件名列表
+     */
+    public void remove(String dir, List<String> names) {
+        postApi("fs/remove")
+                .body(GsonStatic.toJson(Map.of(
+                        "dir", dir,
+                        "names", names
+                )))
+                .then(HttpResponse::isOk);
+    }
+
+    /**
+     * 获取任务进度（百分比）
+     *
+     * @param tid 任务ID
+     * @return 进度 0-100
+     */
+    public Integer getTaskProgress(String tid) {
+        try {
+            JsonObject taskInfo = taskInfo(tid);
+            // 尝试获取进度信息
+            JsonElement progressElement = taskInfo.get("progress");
+            if (progressElement != null && !progressElement.isJsonNull()) {
+                return progressElement.getAsInt();
+            }
+            // 如果没有进度字段，根据状态返回
+            int state = taskInfo.get("state").getAsInt();
+            if (state == 2) return 100;
+            if (state == 0) return 0;
+            return 50; // 进行中，但不知道具体进度
+        } catch (Exception e) {
+            log.error("获取任务进度失败", e);
+            return 0;
+        }
+    }
+
+    /**
+     * 使用磁力链接添加离线下载任务
+     *
+     * @param magnet   磁力链接
+     * @param savePath 保存路径
+     * @return 任务ID
+     */
+    public String addMagnetOfflineDownload(String magnet, String savePath) {
+        // windows 路径处理
+        savePath = ReUtil.replaceAll(savePath, "^[A-z]:", "");
+
+        // 创建保存目录
+        mkdir(savePath);
+
+        String provider = config.getProvider();
+        Assert.notBlank(provider, "请选择 Driver");
+
+        return postApi("fs/add_offline_download")
+                .body(GsonStatic.toJson(Map.of(
+                        "path", savePath,
+                        "urls", List.of(magnet),
+                        "tool", provider,
+                        "delete_policy", "delete_on_upload_succeed"
+                )))
+                .thenFunction(res -> {
+                    JsonObject jsonObject = GsonStatic.fromJson(res.body(), JsonObject.class);
+                    Assert.isTrue(jsonObject.get("code").getAsInt() == 200,
+                            "添加离线下载失败: {}", jsonObject.get("message").getAsString());
+                    log.info("添加磁力链接离线下载成功: {}", magnet.substring(0, Math.min(50, magnet.length())));
+                    return jsonObject.getAsJsonObject("data")
+                            .getAsJsonArray("tasks")
+                            .get(0).getAsJsonObject()
+                            .get("id").getAsString();
+                });
+    }
+
+    /**
      * post api
      *
      * @param action
