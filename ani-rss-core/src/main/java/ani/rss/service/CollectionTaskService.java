@@ -184,22 +184,22 @@ public class CollectionTaskService {
      * 递归构建文件树节点
      */
     private static void buildFileTreeNode(OpenList openList, CollectionFile parent, Ani ani) {
-        List<OpenList.OpenListFileInfo> fileInfos = openList.ls(parent.getPath());
+        List<OpenListFileInfo> fileInfos = openList.ls(parent.getPath());
         if (fileInfos == null) return;
 
-        for (OpenList.OpenListFileInfo info : fileInfos) {
+        for (OpenListFileInfo info : fileInfos) {
             CollectionFile file = new CollectionFile()
                     .setPath(info.getPath() + "/" + info.getName())
                     .setName(info.getName())
                     .setOriginalName(info.getName())
                     .setSize(ObjectUtil.defaultIfNull(info.getSize(), 0L))
-                    .setIsDir(info.getIs_dir())
+                    .setIsDir(info.getIsDir())
                     .setParentPath(info.getPath())
                     .setLevel(parent.getLevel() + 1)
                     .setExpanded(true)
-                    .setChildren(info.getIs_dir() ? new ArrayList<>() : null);
+                    .setChildren(info.getIsDir() ? new ArrayList<>() : null);
 
-            if (!info.getIs_dir()) {
+            if (!info.getIsDir()) {
                 String ext = FileUtil.extName(info.getName());
                 if (FileUtils.isVideoFormat(ext)) {
                     file.setSelected(true);
@@ -217,7 +217,7 @@ public class CollectionTaskService {
 
             parent.getChildren().add(file);
 
-            if (info.getIs_dir()) {
+            if (info.getIsDir()) {
                 buildFileTreeNode(openList, file, ani);
             }
         }
@@ -435,7 +435,7 @@ public class CollectionTaskService {
             dirPath = dirPath.replace("\\", "/");
 
             log.info("[deleteDirectoryRecursively] 开始递归删除目录: {}", dirPath);
-            List<OpenList.OpenListFileInfo> items = openList.ls(dirPath);
+            List<OpenListFileInfo> items = openList.ls(dirPath);
 
             if (items == null || items.isEmpty()) {
                 log.info("[deleteDirectoryRecursively] 目录为空: {}", dirPath);
@@ -445,8 +445,8 @@ public class CollectionTaskService {
             List<String> fileNames = new ArrayList<>();
             List<String> subDirNames = new ArrayList<>();
 
-            for (OpenList.OpenListFileInfo item : items) {
-                if (item.getIs_dir()) {
+            for (OpenListFileInfo item : items) {
+                if (item.getIsDir()) {
                     String subDirPath = dirPath + "/" + item.getName();
                     deleteDirectoryRecursively(openList, subDirPath);
                     subDirNames.add(item.getName());
@@ -561,10 +561,10 @@ public class CollectionTaskService {
 
     private static String skipSingleRootDirectory(OpenList openList, String tempPath, List<CollectionFile> selectedFileList) {
         try {
-            List<OpenList.OpenListFileInfo> items = openList.ls(tempPath);
+            List<OpenListFileInfo> items = openList.ls(tempPath);
             
             // 只有一个项目，且是目录
-            if (items != null && items.size() == 1 && items.get(0).getIs_dir()) {
+            if (items != null && items.size() == 1 && items.get(0).getIsDir()) {
                 String singleDirPath = tempPath + "/" + items.get(0).getName();
                 
                 // 检查所有选中的文件是否都在这个目录下
@@ -706,13 +706,17 @@ public class CollectionTaskService {
             return names;
         }
     }
+    /**
+     * 移动选中的目录结构
+     * <p>注：此方法暂时没有被调用，保留备用</p>
+     */
     private static void moveSelectedDirectoryStructure(OpenList openList, String sourcePath, String destPath, Set<String> selectedFilePaths, Map<String, String> directoryRenames) {
         try {
             log.info("[moveSelectedDirectoryStructure] 开始移动选中文件的目录结构");
-            List<OpenList.OpenListFileInfo> items = openList.ls(sourcePath);
+            List<OpenListFileInfo> items = openList.ls(sourcePath);
             if (items == null || items.isEmpty()) return;
 
-            for (OpenList.OpenListFileInfo item : items) {
+            for (OpenListFileInfo item : items) {
                 String sourceFull = sourcePath + "/" + item.getName();
                 
                 // 检查是否有重命名规则
@@ -724,7 +728,7 @@ public class CollectionTaskService {
                 
                 String destFull = destPath + "/" + targetName;
 
-                if (item.getIs_dir()) {
+                if (item.getIsDir()) {
                     // 检查此目录下是否有选中的文件
                     if (hasSelectedFilesInDir(openList, sourceFull, selectedFilePaths)) {
                         // 创建目标目录
@@ -747,6 +751,7 @@ public class CollectionTaskService {
     
     /**
      * 检查目录下是否有选中的文件
+     * <p>注：此方法暂时没有被调用，保留备用</p>
      */
     private static boolean hasSelectedFilesInDir(OpenList openList, String dirPath, Set<String> selectedFilePaths) {
         // 检查该目录路径下是否有任何选中文件
@@ -821,6 +826,7 @@ public class CollectionTaskService {
     
     /**
      * 删除目录内容，保留目录结构用于日志记录
+     * <p>注：此方法暂时没有被调用，保留备用</p>
      * 
      * @param openList OpenList 实例
      * @param path 要清理的目录路径
@@ -828,15 +834,15 @@ public class CollectionTaskService {
      */
     private static void deleteDirectoryContents(OpenList openList, String path, Boolean keepDirStructure) {
         try {
-            List<OpenList.OpenListFileInfo> files = openList.ls(path);
+            List<OpenListFileInfo> files = openList.ls(path);
             if (files == null || files.isEmpty()) {
                 log.debug("[deleteDirectoryContents] 目录为空: {}", path);
                 return;
             }
             
-            for (OpenList.OpenListFileInfo file : files) {
+            for (OpenListFileInfo file : files) {
                 try {
-                    if (file.getIs_dir()) {
+                    if (file.getIsDir()) {
                         // 递归清理子目录
                         deleteDirectoryContents(openList, path + "/" + file.getName(), keepDirStructure);
                         
@@ -916,6 +922,7 @@ public class CollectionTaskService {
 
     /**
      * 验证任务文件完整性
+     * <p>注：此方法暂时没有被调用，保留备用</p>
      * 
      * @param taskId 任务ID
      * @return 验证结果
@@ -944,7 +951,7 @@ public class CollectionTaskService {
             for (CollectionFile file : task.getFiles()) {
                 if (!file.getIsDir()) {
                     try {
-                        List<OpenList.OpenListFileInfo> parentFiles = openList.ls(file.getParentPath());
+                        List<OpenListFileInfo> parentFiles = openList.ls(file.getParentPath());
                         boolean fileExists = parentFiles != null && parentFiles.stream()
                                 .anyMatch(f -> f.getName().equals(file.getName()));
                         
@@ -973,6 +980,7 @@ public class CollectionTaskService {
 
     /**
      * 获取任务日志信息
+     * <p>注：此方法暂时没有被调用，保留备用</p>
      * 
      * @param taskId 任务ID
      * @return 日志内容
@@ -1010,11 +1018,16 @@ public class CollectionTaskService {
 
     /**
      * 获取所有任务
+     * <p>注：此方法暂时没有被调用，保留备用</p>
      */
     public static Collection<CollectionTask> getAllTasks() {
         return TASK_MAP.values();
     }
 
+    /**
+     * 清理过期任务
+     * <p>注：此方法暂时没有被调用，保留备用</p>
+     */
     public static void cleanupExpiredTasks() {
         long now = System.currentTimeMillis();
         TASK_MAP.entrySet().removeIf(entry -> {

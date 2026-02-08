@@ -4,6 +4,9 @@
       title="合集下载管理"
       width="900px"
       :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="false"
+      :before-close="handleBeforeClose"
       class="collection-magnet-dialog"
   >
     <div v-loading="loading" class="dialog-content">
@@ -16,14 +19,16 @@
               {{ getStatusText(task.status) }}
             </el-tag>
           </div>
-          <el-button 
-              v-if="task.status === 'downloading'" 
-              type="danger" 
-              size="small"
-              @click="$emit('cancel')"
-          >
-            取消任务
-          </el-button>
+          <div class="status-actions">
+            <el-button
+                v-if="task.status === 'downloading'"
+                type="danger"
+                size="small"
+                @click="$emit('cancel')"
+            >
+              取消任务
+            </el-button>
+          </div>
         </div>
         
         <el-progress 
@@ -185,7 +190,13 @@
     <!-- 底部按钮 -->
     <template #footer>
       <div class="dialog-footer">
-        <el-button @click="dialogVisible = false">关闭</el-button>
+        <el-button
+            type="danger"
+            :disabled="organizing"
+            @click="$emit('exit-and-cleanup')"
+        >
+          退出并清理临时文件
+        </el-button>
         <el-button
             v-if="task.status === 'completed'"
             type="primary"
@@ -220,12 +231,16 @@ const props = defineProps({
   organizing: Boolean
 })
 
-const emit = defineEmits(['update:modelValue', 'organize', 'cancel'])
+const emit = defineEmits(['update:modelValue', 'organize', 'cancel', 'exit-and-cleanup'])
 
 const dialogVisible = computed({
   get: () => props.modelValue,
   set: (val) => emit('update:modelValue', val)
 })
+
+const handleBeforeClose = () => {
+  ElMessage.warning('请先完成文件整理，当前窗口不可关闭')
+}
 
 const selectAll = ref(false)
 const allExpanded = ref(true)
@@ -558,6 +573,11 @@ watch(() => props.task.status, (newStatus) => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 10px;
+}
+
+.status-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .status-label {

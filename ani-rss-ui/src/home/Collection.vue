@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <Bgm ref="bgmRef" @callback="bgmAdd"/>
   <CollectionPreview ref="collectionPreviewRef" v-model:data="data"/>
   <CollectionMagnetDialog
@@ -7,10 +7,15 @@
       :loading="magnetTaskLoading"
       :organizing="magnetTask.organizing"
       @organize="handleMagnetOrganize"
+      @exit-and-cleanup="confirmExitAndCleanup"
       @cancel="cancelMagnetTask"
   />
   <el-dialog v-model="dialogVisible"
              center
+             :close-on-click-modal="!isCollectionLocked"
+             :close-on-press-escape="!isCollectionLocked"
+             :show-close="!isCollectionLocked"
+             :before-close="handleDialogBeforeClose"
              title="添加合集">
     <div v-loading="loading" style="height: 500px;">
       <el-scrollbar style="padding: 0 12px;">
@@ -164,7 +169,7 @@
                       <upload-filled/>
                     </el-icon>
                     <div class="el-upload__text">
-                      在这里拖放 .torrent 文件或<em>点击上传</em>
+                      在这里拖拽 .torrent 文件或 <em>点击上传</em>
                     </div>
                     <template #tip>
                       <div class="el-upload__tip flex" style="justify-content: end;">
@@ -218,7 +223,7 @@
                     <el-progress v-if="magnetTask.status === 'downloading'" :percentage="magnetTask.progress" style="margin-top: 12px;"/>
                     <div v-if="magnetTask.status === 'completed'" style="margin-top: 10px; color: #67c23a;">
                       <el-icon><circle-check /></el-icon>
-                      下载完成！点击下方"查看详情并整理"按钮管理文件
+                      下载完成，点击下方“查看详情并整理”按钮管理文件
                     </div>
                   </div>
                 </template>
@@ -265,7 +270,7 @@
 </template>
 
 <script setup>
-import {ref} from "vue";
+import {computed, onBeforeUnmount, ref, watch} from "vue";
 import {UploadFilled, CircleCheck} from "@element-plus/icons-vue";
 import {ElMessage, ElMessageBox} from "element-plus";
 import Bgm from "./Bgm.vue";
@@ -377,7 +382,7 @@ let data = ref({
   filename: '',
   torrent: '',
   magnet: '',
-  downloadMode: 'torrent',  // 'torrent' 或 'magnet'
+  downloadMode: 'torrent',  // 'torrent' or 'magnet'
   ani: aniData,
   show: false,
 })
@@ -392,7 +397,9 @@ let magnetTask = ref({
   finalPath: '',
   creating: false,
   organizing: false,
-  pollingInterval: null
+  pollingInterval: null,
+  pollingInFlight: false,
+  completedNotified: false
 })
 
 // 磁力链接详情对话框
@@ -434,6 +441,7 @@ let createMagnetTask = () => {
     return
   }
   
+  lockAfterStartDownload.value = true
   magnetTask.value.creating = true
   api.post('api/collection?type=magnetCreate', {
     magnet: data.value.magnet,
@@ -443,6 +451,7 @@ let createMagnetTask = () => {
     ElMessage.success('创建下载任务成功')
     startPollingTaskStatus()
   }).catch(err => {
+    lockAfterStartDownload.value = false
     ElMessage.error(err.message || '创建任务失败')
   }).finally(() => {
     magnetTask.value.creating = false
@@ -454,17 +463,23 @@ let startPollingTaskStatus = () => {
   if (magnetTask.value.pollingInterval) {
     clearInterval(magnetTask.value.pollingInterval)
   }
+  magnetTask.value.pollingInFlight = false
+  magnetTask.value.completedNotified = false
   
-  // 保存当前ani信息
+  // 保存当前 ani 信息
   magnetTask.value.ani = data.value.ani
   magnetTask.value.finalPath = data.value.ani.downloadPath
   
   magnetTask.value.pollingInterval = setInterval(() => {
-    if (!magnetTask.value.taskId) {
-      clearInterval(magnetTask.value.pollingInterval)
+    if (magnetTask.value.pollingInFlight) {
       return
     }
-    
+    if (!magnetTask.value.taskId) {
+      clearInterval(magnetTask.value.pollingInterval)
+      magnetTask.value.pollingInterval = null
+      return
+    }
+    magnetTask.value.pollingInFlight = true
     api.get(`api/collection?type=magnetStatus&taskId=${magnetTask.value.taskId}`)
       .then(res => {
         let task = res.data
@@ -473,16 +488,25 @@ let startPollingTaskStatus = () => {
         
         if (task.status === 'completed' && task.files) {
           magnetTask.value.files = task.files
-          // 保留ani信息（后端返回的可能没有）
+          // 保留 ani 信息（后端返回的可能没有）
           if (!magnetTask.value.ani) {
             magnetTask.value.ani = data.value.ani
           }
           clearInterval(magnetTask.value.pollingInterval)
-          ElMessage.success('下载完成，点击"查看详情并整理"按钮管理文件')
+          magnetTask.value.pollingInterval = null
+          if (!magnetTask.value.completedNotified) {
+            magnetTask.value.completedNotified = true
+            ElMessage.success('下载完成，点击"查看详情并整理"按钮管理文件')
+          }
         } else if (task.status === 'failed') {
           clearInterval(magnetTask.value.pollingInterval)
+          magnetTask.value.pollingInterval = null
+          lockAfterStartDownload.value = false
           ElMessage.error(task.error || '下载失败')
         }
+      })
+      .finally(() => {
+        magnetTask.value.pollingInFlight = false
       })
   }, 5000)  // 每5秒轮询一次
 }
@@ -493,7 +517,7 @@ let cancelMagnetTask = () => {
     clearInterval(magnetTask.value.pollingInterval)
   }
   
-  api.get(`api/collection?type=magnetCancel&taskId=${magnetTask.value.taskId}`)
+  return api.get(`api/collection?type=magnetCancel&taskId=${magnetTask.value.taskId}`)
     .then(() => {
       ElMessage.success('任务已取消')
       resetMagnetTask()
@@ -501,10 +525,45 @@ let cancelMagnetTask = () => {
 }
 
 // 重置磁力链接任务状态
+let confirmExitAndCleanup = () => {
+  if (!magnetTask.value.taskId) {
+    ElMessage.warning('当前没有可退出的任务')
+    return
+  }
+
+  ElMessageBox.confirm(
+      '退出后将删除当前任务临时文件，且无法恢复，是否继续？',
+      '确认退出',
+      {
+        confirmButtonText: '继续',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+  ).then(() => {
+    ElMessageBox.confirm(
+        '请再次确认：将退出合集下载管理并删除临时文件。',
+        '二次确认',
+        {
+          confirmButtonText: '确认删除并退出',
+          cancelButtonText: '返回',
+          type: 'error'
+        }
+    ).then(() => {
+      cancelMagnetTask().then(() => {
+        magnetDetailVisible.value = false
+        dialogVisible.value = false
+      })
+    })
+  }).catch(() => {
+    // user canceled
+  })
+}
+
 let resetMagnetTask = () => {
   if (magnetTask.value.pollingInterval) {
     clearInterval(magnetTask.value.pollingInterval)
   }
+  lockAfterStartDownload.value = false
   magnetTask.value = {
     taskId: '',
     status: '',
@@ -514,7 +573,9 @@ let resetMagnetTask = () => {
     finalPath: '',
     creating: false,
     organizing: false,
-    pollingInterval: null
+    pollingInterval: null,
+    pollingInFlight: false,
+    completedNotified: false
   }
 }
 
@@ -576,6 +637,50 @@ let beforeAvatarUpload = (rawFile) => {
 }
 
 let dialogVisible = ref(false)
+let lockAfterStartDownload = ref(false)
+
+const isCollectionLocked = computed(() => {
+  if (!dialogVisible.value) return false
+  if (lockAfterStartDownload.value) return true
+  if (magnetDetailVisible.value) return true
+  if (magnetTask.value.taskId) return true
+  if (magnetTask.value.status && magnetTask.value.status !== 'failed') return true
+  if (startLoading.value || magnetTask.value.creating || magnetTask.value.organizing) return true
+  return ['waiting', 'downloading', 'completed', 'organizing', 'finished'].includes(magnetTask.value.status)
+})
+
+const handleDialogBeforeClose = (done) => {
+  if (isCollectionLocked.value) {
+    ElMessage.warning('合集任务进行中，请先完成当前流程')
+    return
+  }
+  done()
+}
+
+const handleBeforeUnload = (event) => {
+  if (!isCollectionLocked.value) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+watch(isCollectionLocked, (locked) => {
+  if (locked) {
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return
+  }
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+}, {immediate: true})
+
+watch(dialogVisible, (visible, oldVisible) => {
+  if (!visible && oldVisible && isCollectionLocked.value) {
+    dialogVisible.value = true
+    ElMessage.warning('合集任务进行中，当前窗口已锁定')
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
 
 let show = () => {
   init()
