@@ -51,6 +51,8 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Set image repository
+        run: echo "IMAGE_REPO=${{ secrets.DOCKER_USERNAME }}/ani-rss" >> $GITHUB_ENV
       - name: Build and push Docker image (temurin)
         uses: docker/build-push-action@v6
         with:
@@ -58,7 +60,7 @@ jobs:
           file: ./docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: wushuo894/ani-rss:latest,wushuo894/ani-rss:${{ env.version }}
+          tags: ${{ env.IMAGE_REPO }}:latest,${{ env.IMAGE_REPO }}:${{ env.version }}
       - name: Build and push Docker image (openj9)
         uses: docker/build-push-action@v6
         with:
@@ -66,7 +68,7 @@ jobs:
           file: ./docker/Dockerfile-openj9
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: wushuo894/ani-rss:openj9,wushuo894/ani-rss:${{ env.version }}-openj9
+          tags: ${{ env.IMAGE_REPO }}:openj9,${{ env.IMAGE_REPO }}:${{ env.version }}-openj9
       - name: Build and push Docker image (arm32v7)
         uses: docker/build-push-action@v6
         with:
@@ -74,4 +76,4 @@ jobs:
           file: ./docker/Dockerfile-arm32v7
           platforms: linux/arm/v7
           push: true
-          tags: wushuo894/ani-rss:arm32v7,wushuo894/ani-rss:${{ env.version }}-arm32v7
+          tags: ${{ env.IMAGE_REPO }}:arm32v7,${{ env.IMAGE_REPO }}:${{ env.version }}-arm32v7
