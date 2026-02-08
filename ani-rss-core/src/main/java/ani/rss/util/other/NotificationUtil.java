@@ -11,6 +11,7 @@ import cn.hutool.core.thread.ThreadUtil;
 import cn.hutool.core.util.ReflectUtil;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -34,7 +35,8 @@ public class NotificationUtil {
                     NotificationTypeEnum.TELEGRAM, TelegramNotification.class,
                     NotificationTypeEnum.WEB_HOOK, WebHookNotification.class,
                     NotificationTypeEnum.SHELL, ShellNotification.class,
-                    NotificationTypeEnum.FILE_MOVE, FileMoveNotification.class
+                    NotificationTypeEnum.FILE_MOVE, FileMoveNotification.class,
+                    NotificationTypeEnum.OPEN_LIST_UPLOAD, OpenListUploadNotification.class
             );
 
     /**
@@ -54,6 +56,10 @@ public class NotificationUtil {
         }
 
         List<NotificationConfig> notificationConfigList = config.getNotificationConfigList();
+        notificationConfigList = notificationConfigList
+                .stream()
+                .sorted(Comparator.comparingLong(NotificationConfig::getSort))
+                .toList();
 
         for (NotificationConfig notificationConfig : notificationConfigList) {
             boolean enable = notificationConfig.getEnable();

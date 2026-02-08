@@ -153,9 +153,9 @@
               <el-switch v-model="props.ani.customAlistPath"/>
             </div>
             <div>
-              <el-input type="textarea" style="width: 100%" :disabled="!props.ani.customAlistPath"
-                        :autosize="{ minRows: 2}"
-                        v-model:model-value="props.ani.alistPath"/>
+              <el-input v-model:model-value="props.ani.alistPath" :autosize="{ minRows: 2}" :disabled="!props.ani.customAlistPath"
+                        style="width: 100%"
+                        type="textarea"/>
             </div>
           </div>
         </el-form-item>
