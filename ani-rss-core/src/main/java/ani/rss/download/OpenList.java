@@ -3,10 +3,8 @@ package ani.rss.download;
 import ani.rss.commons.ExceptionUtils;
 import ani.rss.commons.FileUtils;
 import ani.rss.commons.GsonStatic;
-import ani.rss.entity.Ani;
-import ani.rss.entity.Config;
-import ani.rss.entity.Item;
-import ani.rss.entity.TorrentsInfo;
+import ani.rss.commons.URLUtils;
+import ani.rss.entity.*;
 import ani.rss.enums.NotificationStatusEnum;
 import ani.rss.enums.StringEnum;
 import ani.rss.util.basic.HttpReq;
@@ -35,11 +33,13 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.File;
 import java.io.Serializable;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 @Slf4j
 public class OpenList implements BaseDownload {
     private Config config;
+    private static final long API_MIN_INTERVAL_MS = 150;
 
     @Override
     public Boolean login(Boolean test, Config config) {
@@ -440,29 +440,66 @@ public class OpenList implements BaseDownload {
      */
     public void batchRename(String dir, Map<String, String> renameMap) {
         if (renameMap.isEmpty()) {
+            log.debug("[batchRename] 目录 [{}] 没有需要重命名的文件", dir);
             return;
         }
 
-        List<Map<String, String>> renameObjects = renameMap.entrySet().stream()
+        // 过滤掉新旧名称相同的项
+        Map<String, String> filteredMap = renameMap.entrySet().stream()
+                .filter(entry -> !entry.getKey().equals(entry.getValue()))
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        Map.Entry::getValue
+                ));
+
+        if (filteredMap.isEmpty()) {
+            log.debug("[batchRename] 目录 [{}] 所有文件新名称与旧名称相同，跳过重命名", dir);
+            return;
+        }
+
+        // 记录被跳过的文件
+        int skippedCount = renameMap.size() - filteredMap.size();
+        if (skippedCount > 0) {
+            log.warn("[batchRename] 目录 [{}] 有 {} 个文件因名称未改变而被跳过", dir, skippedCount);
+            for (Map.Entry<String, String> entry : renameMap.entrySet()) {
+                if (entry.getKey().equals(entry.getValue())) {
+                    log.warn("[batchRename] 跳过: {} -> {} (名称相同)", entry.getKey(), entry.getValue());
+                }
+            }
+        }
+
+        List<Map<String, String>> renameObjects = filteredMap.entrySet().stream()
                 .map(entry -> Map.of(
                         "src_name", entry.getKey(),
                         "new_name", entry.getValue()
                 ))
                 .toList();
 
+        log.info("[batchRename] 准备重命名，目录: [{}], 文件数: {}, 详情: {}", 
+                dir, renameObjects.size(), filteredMap);
+
+        // 批量重命名可能需要较长时间，设置较长的超时
         postApi("fs/batch_rename")
+                .timeout(120000)  // 120秒超时
                 .body(GsonStatic.toJson(Map.of(
                         "src_dir", dir,
                         "rename_objects", renameObjects
                 )))
-                .then(res -> {
-                    JsonObject jsonObject = GsonStatic.fromJson(res.body(), JsonObject.class);
-                    if (jsonObject.get("code").getAsInt() == 200) {
-                        log.info("批量重命名成功，共 {} 个文件", renameObjects.size());
+                .thenFunction(res -> {
+                    String responseBody = res.body();
+                    log.debug("[batchRename] 响应: {}", responseBody);
+                    JsonObject jsonObject = GsonStatic.fromJson(responseBody, JsonObject.class);
+                    int code = jsonObject.get("code").getAsInt();
+                    if (code == 200) {
+                        log.info("[batchRename] 批量重命名成功，目录: [{}], 共 {} 个文件", dir, renameObjects.size());
                     } else {
-                        log.error("批量重命名失败: {}", jsonObject.get("message").getAsString());
+                        String message = jsonObject.has("message") ? jsonObject.get("message").getAsString() : "未知错误";
+                        String errorDetail = jsonObject.has("data") ? jsonObject.get("data").toString() : "";
+                        log.error("[batchRename] 批量重命名失败，目录: [{}], 错误码: {}, 错误: {}, 详情: {}", 
+                                dir, code, message, errorDetail);
+                        log.error("[batchRename] 重命名请求内容: {}", renameMap);
                     }
-                    return res;
+                    return null;
                 });
     }
 
@@ -474,13 +511,22 @@ public class OpenList implements BaseDownload {
      * @param names  文件名列表
      */
     public void move(String srcDir, String dstDir, List<String> names) {
+        log.info("[move] 移动文件，从 [{}] 到 [{}], 文件数: {}", srcDir, dstDir, names.size());
         postApi("fs/move")
+                .timeout(120000)  // 120秒超时，移动大文件可能需要时间
                 .body(GsonStatic.toJson(Map.of(
                         "src_dir", srcDir,
                         "dst_dir", dstDir,
                         "names", names
                 )))
-                .then(HttpResponse::isOk);
+                .thenFunction(res -> {
+                    if (res.isOk()) {
+                        log.info("[move] 移动成功，文件数: {}", names.size());
+                    } else {
+                        log.error("[move] 移动失败，状态码: {}, 响应: {}", res.getStatus(), res.body());
+                    }
+                    return res.isOk();
+                });
     }
 
     /**
@@ -583,7 +629,7 @@ public class OpenList implements BaseDownload {
      * @return
      */
     public synchronized HttpRequest postApi(String action) {
-        ThreadUtil.sleep(2000);
+        ThreadUtil.sleep(API_MIN_INTERVAL_MS);
         String host = config.getDownloadToolHost();
         String password = config.getDownloadToolPassword();
         return HttpReq.post(host + "/api/" + action)

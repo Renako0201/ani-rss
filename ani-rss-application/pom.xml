@@ -15,9 +15,14 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <skipGenerateResources>false</skipGenerateResources>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>ani.rss</groupId>
+            <artifactId>ani-rss-core</artifactId>
+        </dependency>
         <dependency>
             <groupId>ani.rss</groupId>
             <artifactId>ani-rss-ui</artifactId>
@@ -117,6 +122,7 @@
                             <goal>exec</goal>
                         </goals>
                         <configuration>
+                            <skip>${skipGenerateResources}</skip>
                             <executable>bash</executable>
                             <arguments>
                                 <argument>./generate-resources.sh</argument>
@@ -144,4 +150,16 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>windows-skip-bash</id>
+            <activation>
+                <os><family>Windows</family></os>
+            </activation>
+            <properties>
+                <skipGenerateResources>true</skipGenerateResources>
+            </properties>
+        </profile>
+    </profiles>
 </project>

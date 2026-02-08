@@ -1,6 +1,14 @@
 <template>
   <Bgm ref="bgmRef" @callback="bgmAdd"/>
   <CollectionPreview ref="collectionPreviewRef" v-model:data="data"/>
+  <CollectionMagnetDialog
+      v-model="magnetDetailVisible"
+      :task="magnetTask"
+      :loading="magnetTaskLoading"
+      :organizing="magnetTask.organizing"
+      @organize="handleMagnetOrganize"
+      @cancel="cancelMagnetTask"
+  />
   <el-dialog v-model="dialogVisible"
              center
              title="添加合集">
@@ -120,73 +128,151 @@
               <el-form-item label="自定义标签">
                 <custom-tags :config="data.ani"/>
               </el-form-item>
-              <el-form-item label="Torrent">
-                <el-tag v-if="data.filename" closable @close="()=>{
-                data.filename = ''
-                data.torrent = ''
-              }">
-                  <el-tooltip :content="data.filename">
-                    <el-text line-clamp="1" size="small" class="filename">
-                      {{ data.filename }}
-                    </el-text>
-                  </el-tooltip>
-                </el-tag>
-                <el-upload
-                    v-else
-                    :action="`api/upload?type=getBase64&s=${authorization}`"
-                    :before-upload="beforeAvatarUpload"
-                    :on-success="onSuccess"
-                    :show-file-list="false"
-                    class="upload-demo"
-                    drag
-                    multiple
-                    style="width: 100%"
-                >
-                  <el-icon class="el-icon--upload">
-                    <upload-filled/>
-                  </el-icon>
-                  <div class="el-upload__text">
-                    在这里拖放 .torrent 文件或<em>点击上传</em>
-                  </div>
-                  <template #tip>
-                    <div class="el-upload__tip flex" style="justify-content: end;">
-                      .torrent 文件小于 5M
-                    </div>
-                  </template>
-                </el-upload>
+              <!-- 下载方式选择 -->
+              <el-form-item label="下载方式">
+                <el-radio-group v-model="data.downloadMode">
+                  <el-radio label="torrent">种子文件</el-radio>
+                  <el-radio label="magnet">磁力链接</el-radio>
+                </el-radio-group>
               </el-form-item>
+
+              <!-- 种子文件模式 -->
+              <template v-if="data.downloadMode === 'torrent'">
+                <el-form-item label="Torrent">
+                  <el-tag v-if="data.filename" closable @close="()=>{
+                  data.filename = ''
+                  data.torrent = ''
+                }">
+                    <el-tooltip :content="data.filename">
+                      <el-text line-clamp="1" size="small" class="filename">
+                        {{ data.filename }}
+                      </el-text>
+                    </el-tooltip>
+                  </el-tag>
+                  <el-upload
+                      v-else
+                      :action="`api/upload?type=getBase64&s=${authorization}`"
+                      :before-upload="beforeAvatarUpload"
+                      :on-success="onSuccess"
+                      :show-file-list="false"
+                      class="upload-demo"
+                      drag
+                      multiple
+                      style="width: 100%"
+                  >
+                    <el-icon class="el-icon--upload">
+                      <upload-filled/>
+                    </el-icon>
+                    <div class="el-upload__text">
+                      在这里拖放 .torrent 文件或<em>点击上传</em>
+                    </div>
+                    <template #tip>
+                      <div class="el-upload__tip flex" style="justify-content: end;">
+                        .torrent 文件小于 5M
+                      </div>
+                    </template>
+                  </el-upload>
+                </el-form-item>
+              </template>
+
+              <!-- 磁力链接模式 -->
+              <template v-if="data.downloadMode === 'magnet'">
+                <el-form-item label="磁力链接">
+                  <el-input
+                      v-model="data.magnet"
+                      type="textarea"
+                      :rows="3"
+                      placeholder="magnet:?xt=urn:btih:..."
+                  />
+                </el-form-item>
+                <el-alert type="info" :closable="false" style="margin-bottom: 12px;">
+                  <template #default>
+                    <div>磁力链接将下载到 OpenList 云盘，完成后可选择保留的文件</div>
+                  </template>
+                </el-alert>
+
+                <!-- 下载状态概览 -->
+                <template v-if="magnetTask.taskId">
+                  <el-divider/>
+                  <div style="margin-bottom: 12px; padding: 12px; background: #f5f7fa; border-radius: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                      <div>
+                        <span style="margin-right: 10px;">任务状态:</span>
+                        <el-tag :type="getTaskStatusType(magnetTask.status)" size="large">
+                          {{ getTaskStatusText(magnetTask.status) }}
+                        </el-tag>
+                      </div>
+                      <div>
+                        <el-button 
+                            v-if="magnetTask.status === 'completed'" 
+                            type="primary" 
+                            @click="showMagnetDetailDialog"
+                        >
+                          查看详情并整理
+                        </el-button>
+                        <el-button v-if="magnetTask.status === 'downloading'" type="danger" @click="cancelMagnetTask">
+                          取消任务
+                        </el-button>
+                      </div>
+                    </div>
+                    <el-progress v-if="magnetTask.status === 'downloading'" :percentage="magnetTask.progress" style="margin-top: 12px;"/>
+                    <div v-if="magnetTask.status === 'completed'" style="margin-top: 10px; color: #67c23a;">
+                      <el-icon><circle-check /></el-icon>
+                      下载完成！点击下方"查看详情并整理"按钮管理文件
+                    </div>
+                  </div>
+                </template>
+              </template>
             </template>
           </el-form>
         </div>
       </el-scrollbar>
     </div>
     <div class="action">
-      <el-button :disabled="!data.filename" bg
-                 icon="Grid"
-                 text
-                 @click="collectionPreviewRef?.show">
-        预览
-      </el-button>
-      <el-button :disabled="!data.filename"
-                 :loading="startLoading"
-                 bg
-                 icon="Check"
-                 text
-                 type="primary" @click="start">
-        开始
-      </el-button>
+      <!-- 种子文件模式按钮 -->
+      <template v-if="data.downloadMode === 'torrent'">
+        <el-button :disabled="!data.filename" bg
+                   icon="Grid"
+                   text
+                   @click="collectionPreviewRef?.show">
+          预览
+        </el-button>
+        <el-button :disabled="!data.filename"
+                   :loading="startLoading"
+                   bg
+                   icon="Check"
+                   text
+                   type="primary" @click="start">
+          开始
+        </el-button>
+      </template>
+
+      <!-- 磁力链接模式按钮 -->
+      <template v-if="data.downloadMode === 'magnet'">
+        <el-button v-if="!magnetTask.taskId"
+                   :disabled="!data.magnet"
+                   :loading="magnetTask.creating"
+                   bg
+                   icon="Download"
+                   text
+                   type="primary"
+                   @click="createMagnetTask">
+          开始下载
+        </el-button>
+      </template>
     </div>
   </el-dialog>
 </template>
 
 <script setup>
 import {ref} from "vue";
-import {UploadFilled} from "@element-plus/icons-vue";
+import {UploadFilled, CircleCheck} from "@element-plus/icons-vue";
 import {ElMessage, ElMessageBox} from "element-plus";
 import Bgm from "./Bgm.vue";
 import api from "@/js/api.js";
 import Exclude from "@/config/Exclude.vue";
 import CollectionPreview from "./CollectionPreview.vue";
+import CollectionMagnetDialog from "./CollectionMagnetDialog.vue";
 import CustomTags from "@/config/CustomTags.vue";
 import {aniData} from "@/js/ani.js";
 import {authorization} from "@/js/global.js";
@@ -290,9 +376,191 @@ let onSuccess = (res) => {
 let data = ref({
   filename: '',
   torrent: '',
+  magnet: '',
+  downloadMode: 'torrent',  // 'torrent' 或 'magnet'
   ani: aniData,
   show: false,
 })
+
+// 磁力链接任务状态
+let magnetTask = ref({
+  taskId: '',
+  status: '',  // downloading, completed, failed, organizing, finished
+  progress: 0,
+  files: [],
+  ani: null,
+  finalPath: '',
+  creating: false,
+  organizing: false,
+  pollingInterval: null
+})
+
+// 磁力链接详情对话框
+let magnetDetailVisible = ref(false)
+let magnetTaskLoading = ref(false)
+
+// 显示磁力链接详情对话框
+let showMagnetDetailDialog = () => {
+  magnetDetailVisible.value = true
+}
+
+// 处理整理（来自对话框）
+let handleMagnetOrganize = (organizeData) => {
+  magnetTask.value.organizing = true
+  
+  // 处理新的数据结构
+  let requestData = {
+    taskId: magnetTask.value.taskId,
+    files: organizeData.files || organizeData,  // 向后兼容
+    keepDirectoryStructure: organizeData.keepDirectoryStructure || false,
+    directoryRenames: organizeData.directoryRenames || {}
+  }
+  
+  api.post('api/collection?type=magnetOrganize', requestData).then(() => {
+    ElMessage.success('整理完成')
+    magnetDetailVisible.value = false
+    resetMagnetTask()
+  }).catch(err => {
+    ElMessage.error(err.message || '整理失败')
+  }).finally(() => {
+    magnetTask.value.organizing = false
+  })
+}
+
+// 创建磁力链接任务
+let createMagnetTask = () => {
+  if (!data.value.magnet || !data.value.magnet.startsWith('magnet:')) {
+    ElMessage.error('请输入有效的磁力链接')
+    return
+  }
+  
+  magnetTask.value.creating = true
+  api.post('api/collection?type=magnetCreate', {
+    magnet: data.value.magnet,
+    ani: data.value.ani
+  }).then(res => {
+    magnetTask.value.taskId = res.data.id
+    ElMessage.success('创建下载任务成功')
+    startPollingTaskStatus()
+  }).catch(err => {
+    ElMessage.error(err.message || '创建任务失败')
+  }).finally(() => {
+    magnetTask.value.creating = false
+  })
+}
+
+// 轮询任务状态
+let startPollingTaskStatus = () => {
+  if (magnetTask.value.pollingInterval) {
+    clearInterval(magnetTask.value.pollingInterval)
+  }
+  
+  // 保存当前ani信息
+  magnetTask.value.ani = data.value.ani
+  magnetTask.value.finalPath = data.value.ani.downloadPath
+  
+  magnetTask.value.pollingInterval = setInterval(() => {
+    if (!magnetTask.value.taskId) {
+      clearInterval(magnetTask.value.pollingInterval)
+      return
+    }
+    
+    api.get(`api/collection?type=magnetStatus&taskId=${magnetTask.value.taskId}`)
+      .then(res => {
+        let task = res.data
+        magnetTask.value.status = task.status
+        magnetTask.value.progress = task.progress || 0
+        
+        if (task.status === 'completed' && task.files) {
+          magnetTask.value.files = task.files
+          // 保留ani信息（后端返回的可能没有）
+          if (!magnetTask.value.ani) {
+            magnetTask.value.ani = data.value.ani
+          }
+          clearInterval(magnetTask.value.pollingInterval)
+          ElMessage.success('下载完成，点击"查看详情并整理"按钮管理文件')
+        } else if (task.status === 'failed') {
+          clearInterval(magnetTask.value.pollingInterval)
+          ElMessage.error(task.error || '下载失败')
+        }
+      })
+  }, 5000)  // 每5秒轮询一次
+}
+
+// 取消磁力链接任务
+let cancelMagnetTask = () => {
+  if (magnetTask.value.pollingInterval) {
+    clearInterval(magnetTask.value.pollingInterval)
+  }
+  
+  api.get(`api/collection?type=magnetCancel&taskId=${magnetTask.value.taskId}`)
+    .then(() => {
+      ElMessage.success('任务已取消')
+      resetMagnetTask()
+    })
+}
+
+// 重置磁力链接任务状态
+let resetMagnetTask = () => {
+  if (magnetTask.value.pollingInterval) {
+    clearInterval(magnetTask.value.pollingInterval)
+  }
+  magnetTask.value = {
+    taskId: '',
+    status: '',
+    progress: 0,
+    files: [],
+    ani: null,
+    finalPath: '',
+    creating: false,
+    organizing: false,
+    pollingInterval: null
+  }
+}
+
+// 获取状态标签类型
+let getTaskStatusType = (status) => {
+  switch (status) {
+    case 'downloading': return 'primary'
+    case 'completed': return 'success'
+    case 'failed': return 'danger'
+    case 'organizing': return 'warning'
+    case 'finished': return 'success'
+    default: return 'info'
+  }
+}
+
+// 获取状态文本
+let getTaskStatusText = (status) => {
+  switch (status) {
+    case 'downloading': return '下载中'
+    case 'completed': return '下载完成'
+    case 'failed': return '下载失败'
+    case 'organizing': return '整理中'
+    case 'finished': return '已完成'
+    default: return '等待中'
+  }
+}
+
+// 判断是否为视频文件
+let isVideoFile = (filename) => {
+  let ext = filename.split('.').pop().toLowerCase()
+  return ['mkv', 'mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm2ts', 'ts'].includes(ext)
+}
+
+// 格式化文件大小
+let formatFileSize = (bytes) => {
+  if (!bytes || bytes === 0) return '0 B'
+  let k = 1024
+  let sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+}
+
+// 获取文件扩展名
+let getFileExt = (filename) => {
+  return filename.split('.').pop() || ''
+}
 
 let beforeAvatarUpload = (rawFile) => {
   data.value.filename = rawFile.name
@@ -315,6 +583,9 @@ let show = () => {
   data.value.ani.title = ''
   data.value.torrent = ''
   data.value.filename = ''
+  data.value.magnet = ''
+  data.value.downloadMode = 'torrent'
+  resetMagnetTask()
   dialogVisible.value = true
 }
 
@@ -378,6 +649,10 @@ defineExpose({show})
   width: 100%;
   display: flex;
   justify-content: space-between;
-  margin-top: 10px;
+}
+
+.video-file {
+  color: var(--el-color-primary);
+  font-weight: 500;
 }
 </style>

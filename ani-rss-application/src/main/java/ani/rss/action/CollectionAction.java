@@ -4,6 +4,7 @@ import ani.rss.commons.FileUtils;
 import ani.rss.download.qBittorrent;
 import ani.rss.entity.*;
 import ani.rss.enums.StringEnum;
+import ani.rss.service.CollectionTaskService;
 import ani.rss.util.basic.HttpReq;
 import ani.rss.util.other.ConfigUtil;
 import ani.rss.util.other.RenameUtil;
@@ -188,8 +189,71 @@ public class CollectionAction implements BaseAction {
     @Override
     public void doAction(HttpServerRequest request, HttpServerResponse response) {
         String type = request.getParam("type");
+        String method = request.getMethod();
 
+        // ========== 磁力链接模式 (GET/POST 都支持) ==========
+
+        // 获取磁力链接任务状态
+        if ("magnetStatus".equals(type)) {
+            String taskId = request.getParam("taskId");
+            Assert.notBlank(taskId, "任务ID不能为空");
+
+            CollectionTask task = CollectionTaskService.getTask(taskId);
+            Assert.notNull(task, "任务不存在或已过期");
+
+            resultSuccess(task);
+            return;
+        }
+
+        // 取消任务
+        if ("magnetCancel".equals(type)) {
+            String taskId = request.getParam("taskId");
+            if (StrUtil.isNotBlank(taskId)) {
+                CollectionTaskService.cancelTask(taskId);
+            }
+            resultSuccessMsg("任务已取消");
+            return;
+        }
+
+        // POST 请求需要 body
         CollectionInfo collectionInfo = getBody(CollectionInfo.class);
+
+        // 创建磁力链接下载任务
+        if ("magnetCreate".equals(type)) {
+            String magnet = collectionInfo.getMagnet();
+            Assert.notBlank(magnet, "磁力链接不能为空");
+            Assert.isTrue(magnet.startsWith("magnet:"), "无效的磁力链接格式");
+
+            Ani ani = collectionInfo.getAni();
+            Assert.notNull(ani, "订阅信息不能为空");
+
+            CollectionTask task = CollectionTaskService.createMagnetTask(magnet, ani);
+            resultSuccess(task);
+            return;
+        }
+
+        // 执行整理
+        if ("magnetOrganize".equals(type)) {
+            String taskId = collectionInfo.getTaskId();
+            Assert.notBlank(taskId, "任务ID不能为空");
+
+            List<CollectionFile> files = collectionInfo.getFiles();
+            Assert.notEmpty(files, "文件列表不能为空");
+
+            Boolean keepDirStructure = ObjectUtil.defaultIfNull(collectionInfo.getKeepDirectoryStructure(), false);
+            java.util.Map<String, String> directoryRenames = ObjectUtil.defaultIfNull(collectionInfo.getDirectoryRenames(), new java.util.HashMap<>());
+            
+            Boolean success = CollectionTaskService.organizeCollection(taskId, files, keepDirStructure, directoryRenames);
+            if (success) {
+                resultSuccessMsg("整理完成");
+            } else {
+                resultError("整理失败");
+            }
+            return;
+        }
+
+        // ========== 种子文件模式 ==========
+
         String torrent = collectionInfo.getTorrent();
 
         // 预览
