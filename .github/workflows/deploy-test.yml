@@ -28,20 +28,18 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: Set image repository
-        run: echo "IMAGE_REPO=${{ secrets.DOCKER_USERNAME }}/ani-rss" >> $GITHUB_ENV
       - name: Build and push Docker image (temurin)
         uses: docker/build-push-action@v6
         with:
           context: ./
           file: ./docker/Dockerfile
           push: true
-          tags: ${{ env.IMAGE_REPO }}:test
+          tags: wushuo894/ani-rss:test
       - name: Build and push Docker image (openj9)
         uses: docker/build-push-action@v6
         with:
           context: ./
           file: ./docker/Dockerfile-openj9
           push: true
-          tags: ${{ env.IMAGE_REPO }}:test-openj9
+          tags: wushuo894/ani-rss:test-openj9
 
