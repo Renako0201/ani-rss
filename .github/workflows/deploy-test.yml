@@ -52,4 +52,4 @@ jobs:
           tags: |
             wushuo894/ani-rss:test-openj9
             ghcr.io/wushuo894/ani-rss:test-openj9
-            test
+           
