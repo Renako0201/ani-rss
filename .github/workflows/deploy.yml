@@ -54,17 +54,17 @@ jobs:
       - name: Normalize Docker Hub username
         shell: bash
         run: |
-          docker_user_raw='${{ secrets.DOCKER_USERNAME }}'
+          docker_user_raw='${{ secrets.DOCKERHUB_USERNAME }}'
           docker_user_trimmed="$(echo "$docker_user_raw" | tr -d '\r\n' | xargs)"
           docker_user_lower="$(echo "$docker_user_trimmed" | tr '[:upper:]' '[:lower:]')"
 
           if [ -z "$docker_user_lower" ]; then
-            echo "DOCKER_USERNAME is empty. Please set repository secret DOCKER_USERNAME." >&2
+            echo "DOCKERHUB_USERNAME is empty. Please set repository secret DOCKERHUB_USERNAME (Docker Hub username, not email)." >&2
             exit 1
           fi
 
           if ! [[ "$docker_user_lower" =~ ^[a-z0-9]+([._-][a-z0-9]+)*$ ]]; then
-            echo "Invalid DOCKER_USERNAME format after normalization. Current value is not a valid Docker Hub username." >&2
+            echo "Invalid DOCKERHUB_USERNAME format. Please use Docker Hub username (for example: kutorinota), not email." >&2
             exit 1
           fi
 
