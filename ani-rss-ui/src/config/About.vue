@@ -16,7 +16,7 @@
     </div>
     <div class="flex about-buttons">
       <div id="button-list">
-        <el-button :icon="Github" bg text type="info" @click="openUrl('https://github.com/wushuo894/ani-rss')">GitHub
+        <el-button :icon="Github" bg text type="info" @click="openUrl('https://github.com/Renako0201/ani-rss')">GitHub
         </el-button>
         <el-button :icon="Book" bg text type="info" @click="openUrl('https://docs.wushuo.top')">使用文档</el-button>
         <el-button :icon="Telegram" bg text type="info" @click="openUrl('https://t.me/ani_rss')">TG群</el-button>
@@ -55,7 +55,7 @@
     <div v-if="about.update">
       <el-form label-width="auto">
         <el-form-item label="版本号">
-          <el-link type="default" :href="`https://github.com/wushuo894/ani-rss/releases/tag/v${about.latest}`"
+          <el-link type="default" :href="`https://github.com/Renako0201/ani-rss/releases/tag/v${about.latest}`"
                    target="_blank">
             {{ about.latest }}
           </el-link>

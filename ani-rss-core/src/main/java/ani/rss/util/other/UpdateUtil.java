@@ -3,31 +3,26 @@ package ani.rss.util.other;
 import ani.rss.commons.*;
 import ani.rss.entity.About;
 import ani.rss.entity.Config;
-import ani.rss.entity.Global;
 import ani.rss.util.basic.HttpReq;
 import cn.hutool.core.comparator.VersionComparator;
 import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.io.resource.ResourceUtil;
 import cn.hutool.core.lang.Assert;
 import cn.hutool.core.text.StrFormatter;
 import cn.hutool.core.thread.ThreadUtil;
-import cn.hutool.core.util.ArrayUtil;
 import cn.hutool.core.util.ReUtil;
-import cn.hutool.core.util.RuntimeUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.SecureUtil;
 import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
-import java.io.InputStream;
-import java.util.ArrayList;
 import java.util.Date;
-import java.util.List;
 import java.util.Objects;
 
 @Slf4j
 public class UpdateUtil {
+    private static final String RELEASE_REPO = "Renako0201/ani-rss";
+    private static final String RELEASE_BASE = StrFormatter.format("https://github.com/{}/releases", RELEASE_REPO);
 
     public static synchronized About about() {
         Config config = ConfigUtil.CONFIG;
@@ -52,7 +47,7 @@ public class UpdateUtil {
                 .setLatest("")
                 .setMarkdownBody("");
         try {
-            HttpReq.get("https://github.com/wushuo894/ani-rss/releases/latest/download/info.json")
+            HttpReq.get(StrFormatter.format("{}/latest/download/info.json", RELEASE_BASE))
                     .timeout(3000)
                     .then(response -> {
                         int status = response.getStatus();
@@ -81,7 +76,7 @@ public class UpdateUtil {
                         if ("exe".equals(FileUtil.extName(jar))) {
                             filename = "ani-rss-launcher.exe";
                         }
-                        String downloadUrl = StrFormatter.format("https://github.com/wushuo894/ani-rss/releases/download/v{}/{}", latest, filename);
+                        String downloadUrl = StrFormatter.format("{}/download/v{}/{}", RELEASE_BASE, latest, filename);
                         about.setDownloadUrl(downloadUrl);
 
                         try {
@@ -110,6 +105,7 @@ public class UpdateUtil {
 
         File jar = MavenUtils.getJar();
         String extName = StrUtil.blankToDefault(FileUtil.extName(jar), "");
+        Assert.isTrue("jar".equals(extName), "Only jar self-update is supported");
         File file = new File(jar + ".tmp");
 
         FileUtil.del(file);
@@ -136,26 +132,8 @@ public class UpdateUtil {
                 });
 
         ThreadUtil.execute(() -> {
-            if ("jar".equals(extName)) {
-                FileUtil.rename(file, jar.getName(), true);
-                System.exit(0);
-                return;
-            }
-            String filename = "ani-rss-update.exe";
-            File updateExe = new File(file.getParent() + "/" + filename);
-            FileUtil.del(updateExe);
-            try (InputStream stream = ResourceUtil.getStream(filename)) {
-                FileUtil.writeFromStream(stream, updateExe, true);
-                List<String> strings = new ArrayList<>();
-                strings.add(updateExe.toString());
-                strings.add(FileUtils.getAbsolutePath(jar));
-                strings.addAll(Global.ARGS);
-                String[] array = ArrayUtil.toArray(strings, String.class);
-                RuntimeUtil.exec(array);
-                System.exit(0);
-            } catch (Exception e) {
-                log.error(e.getMessage(), e);
-            }
+            FileUtil.rename(file, jar.getName(), true);
+            System.exit(0);
         });
     }
 
