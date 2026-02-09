@@ -49,6 +49,11 @@ public class CollectionTask implements Serializable {
     private List<CollectionFile> files;
 
     /**
+     * 下载中的暂存文件树
+     */
+    private List<CollectionFile> tempFiles;
+
+    /**
      * 订阅信息
      */
     private Ani ani;

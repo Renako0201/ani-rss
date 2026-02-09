@@ -7,6 +7,7 @@
       :loading="magnetTaskLoading"
       :organizing="magnetTask.organizing"
       @organize="handleMagnetOrganize"
+      @force-complete="handleForceComplete"
       @exit-and-cleanup="confirmExitAndCleanup"
       @cancel="cancelMagnetTask"
   />
@@ -199,15 +200,22 @@
                 <!-- 下载状态概览 -->
                 <template v-if="magnetTask.taskId">
                   <el-divider/>
-                  <div style="margin-bottom: 12px; padding: 12px; background: #f5f7fa; border-radius: 8px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <div class="magnet-task-summary">
+                    <div class="magnet-task-header">
                       <div>
-                        <span style="margin-right: 10px;">任务状态:</span>
+                        <span class="magnet-task-label">任务状态:</span>
                         <el-tag :type="getTaskStatusType(magnetTask.status)" size="large">
                           {{ getTaskStatusText(magnetTask.status) }}
                         </el-tag>
                       </div>
                       <div>
+                        <el-button
+                            v-if="magnetTask.taskId && magnetTask.status !== 'completed'"
+                            type="primary"
+                            @click="showMagnetDetailDialog"
+                        >
+                          查看暂存目录
+                        </el-button>
                         <el-button 
                             v-if="magnetTask.status === 'completed'" 
                             type="primary" 
@@ -220,8 +228,8 @@
                         </el-button>
                       </div>
                     </div>
-                    <el-progress v-if="magnetTask.status === 'downloading'" :percentage="magnetTask.progress" style="margin-top: 12px;"/>
-                    <div v-if="magnetTask.status === 'completed'" style="margin-top: 10px; color: #67c23a;">
+                    <el-progress v-if="magnetTask.status === 'downloading'" :percentage="magnetTask.progress" class="magnet-task-progress"/>
+                    <div v-if="magnetTask.status === 'completed'" class="magnet-task-completed">
                       <el-icon><circle-check /></el-icon>
                       下载完成，点击下方“查看详情并整理”按钮管理文件
                     </div>
@@ -393,13 +401,17 @@ let magnetTask = ref({
   status: '',  // downloading, completed, failed, organizing, finished
   progress: 0,
   files: [],
+  tempFiles: [],
   ani: null,
   finalPath: '',
+  tempPath: '',
   creating: false,
   organizing: false,
   pollingInterval: null,
   pollingInFlight: false,
-  completedNotified: false
+  completedNotified: false,
+  tempFilesPollingInterval: null,
+  tempFilesPollingInFlight: false
 })
 
 // 磁力链接详情对话框
@@ -409,6 +421,36 @@ let magnetTaskLoading = ref(false)
 // 显示磁力链接详情对话框
 let showMagnetDetailDialog = () => {
   magnetDetailVisible.value = true
+  startTempFilesPolling()
+}
+
+let handleForceComplete = () => {
+  if (!magnetTask.value.taskId) {
+    ElMessage.warning('当前没有可处理的任务')
+    return
+  }
+  magnetTaskLoading.value = true
+  api.get(`api/collection?type=magnetForceComplete&taskId=${magnetTask.value.taskId}`)
+      .then(res => {
+        const task = res.data || {}
+        magnetTask.value.status = task.status || 'completed'
+        magnetTask.value.progress = 100
+        magnetTask.value.files = task.files || []
+        magnetTask.value.tempFiles = []
+        magnetTask.value.tempPath = task.tempPath || magnetTask.value.tempPath
+        stopTempFilesPolling()
+        if (magnetTask.value.pollingInterval) {
+          clearInterval(magnetTask.value.pollingInterval)
+          magnetTask.value.pollingInterval = null
+        }
+        ElMessage.success('已跳过离线完成校验，进入整理阶段')
+      })
+      .catch(err => {
+        ElMessage.error(err.message || '切换整理阶段失败')
+      })
+      .finally(() => {
+        magnetTaskLoading.value = false
+      })
 }
 
 // 处理整理（来自对话框）
@@ -448,6 +490,7 @@ let createMagnetTask = () => {
     ani: data.value.ani
   }).then(res => {
     magnetTask.value.taskId = res.data.id
+    magnetTask.value.tempPath = res.data.tempPath || ''
     ElMessage.success('创建下载任务成功')
     startPollingTaskStatus()
   }).catch(err => {
@@ -485,15 +528,18 @@ let startPollingTaskStatus = () => {
         let task = res.data
         magnetTask.value.status = task.status
         magnetTask.value.progress = task.progress || 0
+        magnetTask.value.tempPath = task.tempPath || magnetTask.value.tempPath
         
         if (task.status === 'completed' && task.files) {
           magnetTask.value.files = task.files
+          magnetTask.value.tempFiles = []
           // 保留 ani 信息（后端返回的可能没有）
           if (!magnetTask.value.ani) {
             magnetTask.value.ani = data.value.ani
           }
           clearInterval(magnetTask.value.pollingInterval)
           magnetTask.value.pollingInterval = null
+          stopTempFilesPolling()
           if (!magnetTask.value.completedNotified) {
             magnetTask.value.completedNotified = true
             ElMessage.success('下载完成，点击"查看详情并整理"按钮管理文件')
@@ -501,6 +547,7 @@ let startPollingTaskStatus = () => {
         } else if (task.status === 'failed') {
           clearInterval(magnetTask.value.pollingInterval)
           magnetTask.value.pollingInterval = null
+          stopTempFilesPolling()
           lockAfterStartDownload.value = false
           ElMessage.error(task.error || '下载失败')
         }
@@ -516,6 +563,7 @@ let cancelMagnetTask = () => {
   if (magnetTask.value.pollingInterval) {
     clearInterval(magnetTask.value.pollingInterval)
   }
+  stopTempFilesPolling()
   
   return api.get(`api/collection?type=magnetCancel&taskId=${magnetTask.value.taskId}`)
     .then(() => {
@@ -563,20 +611,96 @@ let resetMagnetTask = () => {
   if (magnetTask.value.pollingInterval) {
     clearInterval(magnetTask.value.pollingInterval)
   }
+  stopTempFilesPolling()
   lockAfterStartDownload.value = false
   magnetTask.value = {
     taskId: '',
     status: '',
     progress: 0,
     files: [],
+    tempFiles: [],
     ani: null,
     finalPath: '',
+    tempPath: '',
     creating: false,
     organizing: false,
     pollingInterval: null,
     pollingInFlight: false,
-    completedNotified: false
+    completedNotified: false,
+    tempFilesPollingInterval: null,
+    tempFilesPollingInFlight: false
   }
+}
+
+let fetchTempFiles = () => {
+  if (!magnetTask.value.taskId || magnetTask.value.status !== 'downloading') {
+    return
+  }
+  if (magnetTask.value.tempFilesPollingInFlight) {
+    return
+  }
+  magnetTask.value.tempFilesPollingInFlight = true
+  api.get(`api/collection?type=magnetTempFiles&taskId=${magnetTask.value.taskId}`)
+      .then(res => {
+        magnetTask.value.tempFiles = mergeTempFilesExpandState(
+            magnetTask.value.tempFiles || [],
+            res.data || []
+        )
+      })
+      .finally(() => {
+        magnetTask.value.tempFilesPollingInFlight = false
+      })
+}
+
+let mergeTempFilesExpandState = (oldNodes, newNodes) => {
+  let expandedMap = new Map()
+  let walkOld = (nodes) => {
+    for (let node of (nodes || [])) {
+      if (node.isDir) {
+        expandedMap.set(node.path, !!node.expanded)
+      }
+      if (node.children && node.children.length) {
+        walkOld(node.children)
+      }
+    }
+  }
+  walkOld(oldNodes)
+
+  let walkNew = (nodes) => {
+    for (let node of (nodes || [])) {
+      if (node.isDir) {
+        if (expandedMap.has(node.path)) {
+          node.expanded = expandedMap.get(node.path)
+        } else if (typeof node.expanded !== 'boolean') {
+          node.expanded = false
+        }
+      }
+      if (node.children && node.children.length) {
+        walkNew(node.children)
+      }
+    }
+  }
+  walkNew(newNodes)
+  return newNodes
+}
+
+let startTempFilesPolling = () => {
+  stopTempFilesPolling()
+  if (!magnetTask.value.taskId || magnetTask.value.status !== 'downloading' || !magnetDetailVisible.value) {
+    return
+  }
+  fetchTempFiles()
+  magnetTask.value.tempFilesPollingInterval = setInterval(() => {
+    fetchTempFiles()
+  }, 6000)
+}
+
+let stopTempFilesPolling = () => {
+  if (magnetTask.value.tempFilesPollingInterval) {
+    clearInterval(magnetTask.value.tempFilesPollingInterval)
+    magnetTask.value.tempFilesPollingInterval = null
+  }
+  magnetTask.value.tempFilesPollingInFlight = false
 }
 
 // 获取状态标签类型
@@ -678,8 +802,17 @@ watch(dialogVisible, (visible, oldVisible) => {
   }
 })
 
+watch([magnetDetailVisible, () => magnetTask.value.status, () => magnetTask.value.taskId], () => {
+  if (magnetDetailVisible.value && magnetTask.value.status === 'downloading' && magnetTask.value.taskId) {
+    startTempFilesPolling()
+    return
+  }
+  stopTempFilesPolling()
+})
+
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
+  stopTempFilesPolling()
 })
 
 let show = () => {
@@ -759,5 +892,32 @@ defineExpose({show})
 .video-file {
   color: var(--el-color-primary);
   font-weight: 500;
+}
+
+.magnet-task-summary {
+  margin-bottom: 12px;
+  padding: 12px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+}
+
+.magnet-task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.magnet-task-label {
+  margin-right: 10px;
+}
+
+.magnet-task-progress {
+  margin-top: 12px;
+}
+
+.magnet-task-completed {
+  margin-top: 10px;
+  color: var(--el-color-success);
 }
 </style>

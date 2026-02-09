@@ -38,6 +38,57 @@
         />
       </div>
 
+      <div v-if="task.status === 'downloading'" class="temp-tree-section">
+        <div class="tree-header">
+          <div class="tree-title">
+            <span>暂存路径内容（实时）</span>
+            <el-tag size="small" type="info">{{ task.tempPath || '-' }}</el-tag>
+          </div>
+        </div>
+        <el-empty
+            v-if="!flattenedTempFiles.length"
+            description="暂存路径暂无文件（可能仍在离线准备中）"
+            :image-size="80"
+            class="temp-empty"
+        />
+        <div v-else class="file-tree">
+          <div
+              v-for="node in flattenedTempFiles"
+              :key="'temp-' + node.path"
+              class="tree-node"
+              :style="{ marginLeft: (node.level * 20) + 'px' }"
+              :class="{ 'is-directory': node.isDir }"
+          >
+            <div class="node-content">
+              <span
+                  v-if="node.isDir && node.children && node.children.length > 0"
+                  class="expand-icon"
+                  @click="toggleTempExpand(node)"
+              >
+                <el-icon>
+                  <arrow-right v-if="!node.expanded" />
+                  <arrow-down v-else />
+                </el-icon>
+              </span>
+              <span v-else class="expand-placeholder"></span>
+              <el-icon class="file-icon">
+                <folder v-if="node.isDir" />
+                <video-play v-else-if="isVideoFile(node.name)" />
+                <document v-else />
+              </el-icon>
+              <div class="file-info">
+                <div class="file-name-row">
+                  <span class="file-name" :title="node.name">{{ node.name }}</span>
+                </div>
+                <span v-if="!node.isDir && node.size" class="file-size">
+                  {{ formatFileSize(node.size) }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 文件树 -->
       <div v-if="task.files && task.files.length > 0" class="file-tree-section">
         <div class="tree-header">
@@ -198,6 +249,14 @@
           退出并清理临时文件
         </el-button>
         <el-button
+            v-if="task.status === 'downloading'"
+            type="primary"
+            :disabled="organizing"
+            @click="$emit('force-complete')"
+        >
+          有文件，直接整理
+        </el-button>
+        <el-button
             v-if="task.status === 'completed'"
             type="primary"
             :disabled="!hasSelectedFiles"
@@ -224,6 +283,7 @@ const props = defineProps({
       status: '',
       progress: 0,
       files: [],
+      tempFiles: [],
       finalPath: ''
     })
   },
@@ -231,7 +291,7 @@ const props = defineProps({
   organizing: Boolean
 })
 
-const emit = defineEmits(['update:modelValue', 'organize', 'cancel', 'exit-and-cleanup'])
+const emit = defineEmits(['update:modelValue', 'organize', 'cancel', 'force-complete', 'exit-and-cleanup'])
 
 const dialogVisible = computed({
   get: () => props.modelValue,
@@ -246,6 +306,20 @@ const selectAll = ref(false)
 const allExpanded = ref(true)
 const keepDirectoryStructure = ref(false)
 const directoriesToRename = ref([])
+
+const flattenedTempFiles = computed(() => {
+  const result = []
+  const traverse = (nodes) => {
+    for (const node of nodes || []) {
+      result.push(node)
+      if (node.isDir && node.expanded && node.children) {
+        traverse(node.children)
+      }
+    }
+  }
+  traverse(props.task.tempFiles)
+  return result
+})
 
 // 计算扁平化的文件列表（根据展开状态）
 const flattenedFiles = computed(() => {
@@ -354,6 +428,10 @@ const handleSelectChange = (node, val) => {
 
 // 展开/折叠
 const toggleExpand = (node) => {
+  node.expanded = !node.expanded
+}
+
+const toggleTempExpand = (node) => {
   node.expanded = !node.expanded
 }
 
@@ -539,6 +617,20 @@ watch(() => props.task.status, (newStatus) => {
     allExpanded.value = true
   }
 })
+
+watch(() => props.task.tempFiles, (files) => {
+  const normalize = (nodes) => {
+    for (const node of nodes || []) {
+      if (node.isDir && typeof node.expanded !== 'boolean') {
+        node.expanded = false
+      }
+      if (node.children) {
+        normalize(node.children)
+      }
+    }
+  }
+  normalize(files)
+}, { deep: true, immediate: true })
 </script>
 
 <style scoped>
@@ -563,7 +655,7 @@ watch(() => props.task.status, (newStatus) => {
 }
 
 .task-status {
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
   padding: 15px;
   border-radius: 8px;
 }
@@ -586,9 +678,19 @@ watch(() => props.task.status, (newStatus) => {
 }
 
 .file-tree-section {
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--el-border-color-light);
   border-radius: 8px;
   overflow: hidden;
+}
+
+.temp-tree-section {
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.temp-empty {
+  padding: 12px 0;
 }
 
 .tree-header {
@@ -596,8 +698,8 @@ watch(() => props.task.status, (newStatus) => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 15px;
-  background: #f5f7fa;
-  border-bottom: 1px solid #e4e7ed;
+  background: var(--el-fill-color-light);
+  border-bottom: 1px solid var(--el-border-color-light);
 }
 
 .tree-title {
@@ -625,12 +727,12 @@ watch(() => props.task.status, (newStatus) => {
 .tree-node {
   padding: 6px 0;
   padding-right: 10px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
   transition: background-color 0.2s;
 }
 
 .tree-node:hover {
-  background-color: #f5f7fa;
+  background-color: var(--el-fill-color-light);
 }
 
 .tree-node:last-child {
@@ -638,12 +740,12 @@ watch(() => props.task.status, (newStatus) => {
 }
 
 .tree-node.is-directory {
-  background-color: #fafafa;
+  background-color: var(--el-fill-color-lighter);
   font-weight: 500;
 }
 
 .tree-node.is-selected {
-  background-color: #f0f9ff;
+  background-color: var(--el-color-primary-light-9);
 }
 
 .node-content {
@@ -658,7 +760,7 @@ watch(() => props.task.status, (newStatus) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .expand-placeholder {
@@ -671,15 +773,15 @@ watch(() => props.task.status, (newStatus) => {
 
 .file-icon {
   font-size: 18px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .tree-node.is-video .file-icon {
-  color: #409eff;
+  color: var(--el-color-primary);
 }
 
 .tree-node.is-directory .file-icon {
-  color: #e6a23c;
+  color: var(--el-color-warning);
 }
 
 .file-info {
@@ -712,7 +814,7 @@ watch(() => props.task.status, (newStatus) => {
 
 .file-size {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   flex-shrink: 0;
 }
 
@@ -730,16 +832,16 @@ watch(() => props.task.status, (newStatus) => {
 }
 
 .preview-section {
-  background: #f0f9ff;
+  background: var(--el-color-primary-light-9);
   padding: 15px;
   border-radius: 8px;
-  border-left: 4px solid #409eff;
+  border-left: 4px solid var(--el-color-primary);
 }
 
 .preview-title {
   font-weight: bold;
   margin-bottom: 10px;
-  color: #409eff;
+  color: var(--el-color-primary);
 }
 
 .preview-content {
@@ -755,12 +857,12 @@ watch(() => props.task.status, (newStatus) => {
 }
 
 .preview-label {
-  color: #606266;
+  color: var(--el-text-color-regular);
   flex-shrink: 0;
 }
 
 .preview-value {
-  color: #303133;
+  color: var(--el-text-color-primary);
   font-weight: 500;
 }
 
@@ -771,10 +873,10 @@ watch(() => props.task.status, (newStatus) => {
 }
 
 .directory-edit-section {
-  background: #fdf6ec;
+  background: var(--el-color-warning-light-9);
   padding: 15px;
   border-radius: 8px;
-  border-left: 4px solid #e6a23c;
+  border-left: 4px solid var(--el-color-warning);
   margin-top: 15px;
   margin-bottom: 20px;
 }
@@ -782,7 +884,7 @@ watch(() => props.task.status, (newStatus) => {
 .section-title {
   font-weight: bold;
   margin-bottom: 12px;
-  color: #e6a23c;
+  color: var(--el-color-warning);
   font-size: 14px;
 }
 
@@ -798,14 +900,14 @@ watch(() => props.task.status, (newStatus) => {
   display: flex;
   flex-direction: column;
   padding: 10px;
-  background: white;
+  background: var(--el-bg-color);
   border-radius: 4px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--el-border-color-light);
   transition: all 0.2s;
 }
 
 .directory-item:hover {
-  border-color: #e6a23c;
+  border-color: var(--el-color-warning);
   box-shadow: 0 2px 8px rgba(230, 162, 60, 0.1);
 }
 
@@ -816,33 +918,33 @@ watch(() => props.task.status, (newStatus) => {
 }
 
 .dir-icon {
-  color: #e6a23c;
+  color: var(--el-color-warning);
   font-size: 18px;
   flex-shrink: 0;
 }
 
 .dir-path {
   flex: 1;
-  color: #303133;
+  color: var(--el-text-color-primary);
   font-size: 14px;
   font-weight: 500;
   word-break: break-all;
 }
 .dir-label {
-  color: #303133;
+  color: var(--el-text-color-primary);
   font-size: 14px;
   font-weight: 500;
   margin-bottom: 8px;
 }
 .skip-tag {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
   margin-left: 8px;
 }
 
 .dir-children-hint {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-top: 4px;
   margin-left: 28px;
 }

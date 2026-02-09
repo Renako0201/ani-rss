@@ -200,7 +200,7 @@ const emit = defineEmits(['callback'])
   align-items: center;
   gap: 8px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin-bottom: 16px;
   font-size: 16px;
 }
@@ -214,8 +214,8 @@ const emit = defineEmits(['callback'])
   flex-direction: column;
   gap: 12px;
   padding: 16px;
-  background: #f0f9ff;
-  border: 1px solid #e1f5fe;
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-7);
   border-radius: 8px;
 }
 
@@ -240,7 +240,7 @@ const emit = defineEmits(['callback'])
 
 .upload-icon {
   font-size: 48px;
-  color: #c0c4cc;
+  color: var(--el-text-color-placeholder);
   margin-bottom: 16px;
 }
 
@@ -250,32 +250,32 @@ const emit = defineEmits(['callback'])
 
 .upload-main-text {
   font-size: 16px;
-  color: #606266;
+  color: var(--el-text-color-regular);
   margin-bottom: 4px;
 }
 
 .upload-sub-text {
   font-size: 14px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .upload-sub-text em {
-  color: #409eff;
+  color: var(--el-color-primary);
   font-style: normal;
 }
 
 .upload-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   margin-top: 8px;
 }
 
 .conflict-section {
   margin-bottom: 24px;
   padding: 20px;
-  background: #fafafa;
+  background: var(--el-fill-color-lighter);
   border-radius: 8px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-light);
 }
 
 .conflict-content {
@@ -291,19 +291,19 @@ const emit = defineEmits(['callback'])
 .conflict-option {
   margin: 0;
   padding: 12px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--el-border-color);
   border-radius: 6px;
   transition: all 0.3s;
 }
 
 .conflict-option:hover {
-  border-color: #409eff;
-  background: #f0f9ff;
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
 }
 
 .conflict-option.is-checked {
-  border-color: #409eff;
-  background: #f0f9ff;
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
 }
 
 .option-content {
@@ -312,13 +312,13 @@ const emit = defineEmits(['callback'])
 
 .option-title {
   font-weight: 500;
-  color: #303133;
+  color: var(--el-text-color-primary);
   margin-bottom: 4px;
 }
 
 .option-desc {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   line-height: 1.4;
 }
 
@@ -327,24 +327,24 @@ const emit = defineEmits(['callback'])
   justify-content: flex-end;
   gap: 12px;
   padding-top: 16px;
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid var(--el-border-color-light);
 }
 
 /* 上传区域拖拽状态 */
 .upload-area :deep(.el-upload-dragger) {
-  border: 2px dashed #c0c4cc;
+  border: 2px dashed var(--el-border-color);
   border-radius: 8px;
   transition: all 0.3s;
 }
 
 .upload-area :deep(.el-upload-dragger:hover) {
-  border-color: #409eff;
-  background: #f0f9ff;
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
 }
 
 .upload-area :deep(.el-upload-dragger.is-dragover) {
-  border-color: #409eff;
-  background: #f0f9ff;
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
 }
 
 /* 响应式设计 */

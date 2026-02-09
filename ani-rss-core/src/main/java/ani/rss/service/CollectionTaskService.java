@@ -98,6 +98,65 @@ public class CollectionTaskService {
     }
 
     /**
+     * 获取任务的暂存目录文件树（用于下载中观察）
+     */
+    public static List<CollectionFile> getTempFiles(String taskId) {
+        CollectionTask task = TASK_MAP.get(taskId);
+        if (task == null) {
+            return List.of();
+        }
+        if (!"downloading".equals(task.getStatus())) {
+            return ObjectUtil.defaultIfNull(task.getTempFiles(), List.of());
+        }
+        if (StrUtil.isBlank(task.getTempPath())) {
+            return List.of();
+        }
+        try {
+            List<CollectionFile> tempFiles = buildFileTree(task.getTempPath(), task.getAni(), false, false);
+            task.setTempFiles(tempFiles);
+            return tempFiles;
+        } catch (Exception e) {
+            log.warn("[getTempFiles] 获取暂存目录失败: taskId={}, path={}", taskId, task.getTempPath(), e);
+            return ObjectUtil.defaultIfNull(task.getTempFiles(), List.of());
+        }
+    }
+
+    /**
+     * 跳过离线下载完成检查，直接进入整理阶段
+     */
+    public static CollectionTask forceCompleteTask(String taskId) {
+        CollectionTask task = TASK_MAP.get(taskId);
+        Assert.notNull(task, "任务不存在或已过期");
+        if ("completed".equals(task.getStatus())) {
+            return task;
+        }
+        Assert.isTrue("downloading".equals(task.getStatus()), "当前任务状态不允许跳过校验");
+
+        Config config = ConfigUtil.CONFIG;
+        OpenList openList = new OpenList();
+        Assert.isTrue(openList.login(config), "OpenList 登录失败");
+
+        List<CollectionFile> files = buildFileTree(task.getTempPath(), task.getAni(), true, true);
+        Assert.notEmpty(files, "暂存路径暂无可整理文件，请稍后再试");
+
+        // 主动结束离线任务，避免后续继续写入影响整理
+        if (StrUtil.isNotBlank(task.getTid())) {
+            try {
+                openList.taskDelete(task.getTid());
+            } catch (Exception e) {
+                log.warn("[forceCompleteTask] 停止离线任务失败: taskId={}, tid={}", taskId, task.getTid(), e);
+            }
+        }
+
+        task.setFiles(files);
+        task.setTempFiles(files);
+        task.setProgress(100);
+        task.setStatus("completed");
+        task.setError(null);
+        return task;
+    }
+
+    /**
      * 更新任务状态
      */
     private static void updateTaskStatus(CollectionTask task) {
@@ -120,7 +179,7 @@ public class CollectionTaskService {
                     // 先构建文件树，再标记为完成
                     if (task.getFiles() == null) {
                         try {
-                            List<CollectionFile> files = buildFileTree(task.getTempPath(), task.getAni());
+                            List<CollectionFile> files = buildFileTree(task.getTempPath(), task.getAni(), true, true);
                             task.setFiles(files);
                             log.info("文件树构建完成，任务ID: {}", task.getId());
                         } catch (Exception e) {
@@ -157,6 +216,10 @@ public class CollectionTaskService {
      * 构建文件树（树形结构）
      */
     public static List<CollectionFile> buildFileTree(String path, Ani ani) {
+        return buildFileTree(path, ani, true, true);
+    }
+
+    public static List<CollectionFile> buildFileTree(String path, Ani ani, boolean autoRename, boolean defaultExpanded) {
         Config config = ConfigUtil.CONFIG;
         OpenList openList = new OpenList();
         if (!openList.login(config)) return List.of();
@@ -168,14 +231,16 @@ public class CollectionTaskService {
                 .setIsDir(true)
                 .setSelected(true)
                 .setLevel(0)
-                .setExpanded(true)
+                .setExpanded(defaultExpanded)
                 .setChildren(new ArrayList<>());
 
         // 构建树
-        buildFileTreeNode(openList, root, ani);
+        buildFileTreeNode(openList, root, ani, defaultExpanded);
         
-        // 自动重命名选中的视频文件
-        autoRenameFiles(root, ani);
+        if (autoRename) {
+            // 自动重命名选中的视频文件
+            autoRenameFiles(root, ani);
+        }
         
         return root.getChildren();
     }
@@ -183,7 +248,7 @@ public class CollectionTaskService {
     /**
      * 递归构建文件树节点
      */
-    private static void buildFileTreeNode(OpenList openList, CollectionFile parent, Ani ani) {
+    private static void buildFileTreeNode(OpenList openList, CollectionFile parent, Ani ani, boolean defaultExpanded) {
         List<OpenListFileInfo> fileInfos = openList.ls(parent.getPath());
         if (fileInfos == null) return;
 
@@ -196,7 +261,7 @@ public class CollectionTaskService {
                     .setIsDir(info.getIsDir())
                     .setParentPath(info.getPath())
                     .setLevel(parent.getLevel() + 1)
-                    .setExpanded(true)
+                    .setExpanded(defaultExpanded)
                     .setChildren(info.getIsDir() ? new ArrayList<>() : null);
 
             if (!info.getIsDir()) {
@@ -218,7 +283,7 @@ public class CollectionTaskService {
             parent.getChildren().add(file);
 
             if (info.getIsDir()) {
-                buildFileTreeNode(openList, file, ani);
+                buildFileTreeNode(openList, file, ani, defaultExpanded);
             }
         }
     }

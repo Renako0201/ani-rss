@@ -149,7 +149,7 @@ public class CollectionAction implements BaseAction {
         Config config = ConfigUtil.CONFIG;
         String host = config.getDownloadToolHost();
         String download = config.getDownloadToolType();
-        Assert.isTrue("qBittorrent".equals(download), "合集下载暂时只支持 qBittorrent");
+        Assert.isTrue("qBittorrent".equals(download), "合集下载暂时只支持qBittorrent");
 
         Assert.isTrue(TorrentUtil.login(), "下载器登录失败");
 
@@ -202,6 +202,22 @@ public class CollectionAction implements BaseAction {
             Assert.notNull(task, "任务不存在或已过期");
 
             resultSuccess(task);
+            return;
+        }
+
+        // 获取磁力链接任务暂存目录文件树
+        if ("magnetTempFiles".equals(type)) {
+            String taskId = request.getParam("taskId");
+            Assert.notBlank(taskId, "任务ID不能为空");
+            resultSuccess(CollectionTaskService.getTempFiles(taskId));
+            return;
+        }
+
+        // 跳过离线下载完成校验，直接进入整理阶段
+        if ("magnetForceComplete".equals(type)) {
+            String taskId = request.getParam("taskId");
+            Assert.notBlank(taskId, "任务ID不能为空");
+            resultSuccess(CollectionTaskService.forceCompleteTask(taskId));
             return;
         }
 
