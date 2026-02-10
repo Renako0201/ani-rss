@@ -5,7 +5,7 @@ export let notificationTypeList = [
     },
     {
         name: 'MAIL',
-        label: '邮箱通知'
+        label: '邮件通知'
     },
     {
         name: 'SERVER_CHAN',
@@ -34,6 +34,10 @@ export let notificationTypeList = [
     {
         name: 'OPEN_LIST_UPLOAD',
         label: 'OpenList上传'
+    },
+    {
+        name: 'RCLONE_SYNC',
+        label: 'Rclone同步'
     }
 ]
 

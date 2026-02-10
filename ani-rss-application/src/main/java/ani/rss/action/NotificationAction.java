@@ -10,6 +10,7 @@ import ani.rss.util.other.AniUtil;
 import ani.rss.util.other.BgmUtil;
 import ani.rss.util.other.NotificationUtil;
 import ani.rss.util.other.TmdbUtils;
+import ani.rss.service.RcloneSyncTaskService;
 import ani.rss.web.action.BaseAction;
 import ani.rss.web.annotation.Auth;
 import ani.rss.web.annotation.Path;
@@ -49,6 +50,13 @@ public class NotificationAction implements BaseAction {
     private void test() {
         NotificationConfig notificationConfig = getBody(NotificationConfig.class);
         NotificationTypeEnum notificationType = notificationConfig.getNotificationType();
+
+        if (NotificationTypeEnum.RCLONE_SYNC == notificationType) {
+            String output = RcloneSyncTaskService.probe(notificationConfig);
+            resultSuccessMsg("SSH/RC 连通性测试成功 {}", output);
+            return;
+        }
+
         Class<? extends BaseNotification> aClass = NotificationUtil.NOTIFICATION_MAP.get(notificationType);
         BaseNotification baseNotification = ReflectUtil.newInstance(aClass);
         Ani ani = AniUtil.createAni();
