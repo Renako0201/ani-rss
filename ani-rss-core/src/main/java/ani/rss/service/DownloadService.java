@@ -5,6 +5,7 @@ import ani.rss.commons.FileUtils;
 import ani.rss.commons.GsonStatic;
 import ani.rss.entity.*;
 import ani.rss.enums.NotificationStatusEnum;
+import ani.rss.enums.NotificationTypeEnum;
 import ani.rss.enums.StringEnum;
 import ani.rss.enums.TorrentsTags;
 import ani.rss.util.other.*;
@@ -393,14 +394,14 @@ public class DownloadService {
         }
         ThreadUtil.sleep(1000);
         savePath = FileUtils.getAbsolutePath(savePath);
+        Config config = ConfigUtil.CONFIG;
+        waitRcloneSyncQueueIfNeeded(config, name);
 
         String text = StrFormatter.format("{} 已更新", name);
         if (!master) {
             text = StrFormatter.format("(备用RSS) {}", text);
         }
         NotificationUtil.send(ConfigUtil.CONFIG, ani, text, NotificationStatusEnum.DOWNLOAD_START);
-
-        Config config = ConfigUtil.CONFIG;
 
         Integer downloadRetry = config.getDownloadRetry();
         for (int i = 1; i <= downloadRetry; i++) {
@@ -425,6 +426,49 @@ public class DownloadService {
      *
      * @param torrentsInfo
      */
+    private static void waitRcloneSyncQueueIfNeeded(Config config, String name) {
+        if (!rcloneSyncEnabledOnDownloadEnd(config)) {
+            return;
+        }
+        if (!RcloneSyncTaskService.hasActiveTasks()) {
+            return;
+        }
+        long start = System.currentTimeMillis();
+        long maxWaitMs = 12L * 60 * 60 * 1000;
+        long nextLogAt = start;
+        while (RcloneSyncTaskService.hasActiveTasks()) {
+            long now = System.currentTimeMillis();
+            if (now - start > maxWaitMs) {
+                log.warn("wait rclone sync timeout, continue download {}", name);
+                return;
+            }
+            if (now >= nextLogAt) {
+                long waitSeconds = (now - start) / 1000;
+                log.info("wait rclone sync queue idle before download {}, waited {}s", name, waitSeconds);
+                nextLogAt = now + 10000;
+            }
+            ThreadUtil.sleep(2000);
+        }
+        long waitSeconds = (System.currentTimeMillis() - start) / 1000;
+        log.info("rclone sync queue is idle, continue download {}, waited {}s", name, waitSeconds);
+    }
+
+    private static boolean rcloneSyncEnabledOnDownloadEnd(Config config) {
+        if (Objects.isNull(config)) {
+            return false;
+        }
+        List<NotificationConfig> notificationConfigList = config.getNotificationConfigList();
+        if (Objects.isNull(notificationConfigList)) {
+            return false;
+        }
+        return notificationConfigList.stream().anyMatch(it ->
+                Boolean.TRUE.equals(it.getEnable()) &&
+                        NotificationTypeEnum.RCLONE_SYNC == it.getNotificationType() &&
+                        Objects.nonNull(it.getStatusList()) &&
+                        it.getStatusList().contains(NotificationStatusEnum.DOWNLOAD_END)
+        );
+    }
+
     public static synchronized void notification(TorrentsInfo torrentsInfo) {
         TorrentsInfo.State state = torrentsInfo.getState();
         String name = torrentsInfo.getName();

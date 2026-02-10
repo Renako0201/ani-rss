@@ -3,8 +3,11 @@ package ani.rss.service;
 import ani.rss.commons.FileUtils;
 import ani.rss.download.OpenList;
 import ani.rss.entity.*;
+import ani.rss.enums.NotificationStatusEnum;
 import ani.rss.util.other.ConfigUtil;
+import ani.rss.util.other.NotificationUtil;
 import ani.rss.util.other.RenameUtil;
+import cn.hutool.core.text.StrFormatter;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.lang.Assert;
 import cn.hutool.core.thread.ThreadUtil;
@@ -384,6 +387,13 @@ public class CollectionTaskService {
             cleanupTempDir(openList, tempPath);
 
             task.setStatus("finished");
+            Ani ani = task.getAni();
+            if (Objects.nonNull(ani)) {
+                String text = StrFormatter.format("{} {} 下载完成",
+                        RcloneSyncTaskService.COLLECTION_PREFIX,
+                        StrUtil.blankToDefault(ani.getTitle(), "合集"));
+                NotificationUtil.send(ConfigUtil.CONFIG, ani, text, NotificationStatusEnum.DOWNLOAD_END);
+            }
             log.info("[organizeCollection] 合集整理完成: {}", taskId);
 
             ThreadUtil.execute(() -> {

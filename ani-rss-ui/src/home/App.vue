@@ -1,10 +1,12 @@
-<template>
+﻿<template>
   <Config ref="config"/>
   <Add ref="add"/>
   <Logs ref="logs"/>
   <Manage ref="manage"/>
   <Collection ref="collection"/>
   <TorrentsInfos ref="torrentsInfosRef"/>
+  <RcloneSyncTasks ref="rcloneSyncTasksRef"/>
+  <RssTaskQueue ref="rssTaskQueueRef"/>
   <div class="content">
     <div id="header">
       <div style="margin: 10px;" class="auto-flex">
@@ -77,6 +79,26 @@
           </el-button>
         </div>
         <div style="margin: 0 4px;">
+          <el-button bg text @click="rcloneSyncTasksRef?.show">
+            <el-icon :class="elIconClass">
+              <Connection/>
+            </el-icon>
+            <template v-if="isNotMobile">
+              同步
+            </template>
+          </el-button>
+        </div>
+        <div style="margin: 0 4px;">
+          <el-button bg text @click="rssTaskQueueRef?.show">
+            <el-icon :class="elIconClass">
+              <Operation/>
+            </el-icon>
+            <template v-if="isNotMobile">
+              队列
+            </template>
+          </el-button>
+        </div>
+        <div style="margin: 0 4px;">
           <popconfirm title="立即刷新全部订阅?" @confirm="download">
             <template #reference>
               <el-button text bg :loading="downloadLoading">
@@ -132,7 +154,7 @@
 
 <script setup>
 import {onMounted, ref} from "vue";
-import {Fold, Plus, Refresh, Setting, Tickets} from "@element-plus/icons-vue"
+import {Connection, Fold, Operation, Plus, Refresh, Setting, Tickets} from "@element-plus/icons-vue"
 import Config from "./Config.vue";
 import List from "./List.vue";
 import Add from "./Add.vue";
@@ -144,11 +166,15 @@ import Manage from "./Manage.vue";
 import {useLocalStorage} from "@vueuse/core";
 import Collection from "./Collection.vue";
 import TorrentsInfos from "./TorrentsInfos.vue";
+import RcloneSyncTasks from "./RcloneSyncTasks.vue";
+import RssTaskQueue from "./RssTaskQueue.vue";
 import {elIconClass, initLayout, isNotMobile} from "@/js/global.js";
 
 const collection = ref()
 const manage = ref()
 const torrentsInfosRef = ref()
+const rcloneSyncTasksRef = ref()
+const rssTaskQueueRef = ref()
 
 const title = ref('')
 const enable = useLocalStorage('select-enable', '已启用')
@@ -236,4 +262,5 @@ let download = () => {
   justify-content: flex-end;
 }
 </style>
+
 

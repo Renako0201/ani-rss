@@ -217,6 +217,19 @@ public class NotificationConfig implements Serializable {
      * 删除同及文件
      */
     private Boolean openListUploadDeleteOldEpisode;
+    private String rcloneSyncSshHost;
+    private Integer rcloneSyncSshPort;
+    private String rcloneSyncSshUser;
+    private String rcloneSyncSshBin;
+    private String rcloneSyncRcloneBin;
+    private String rcloneSyncRcUrl;
+    private String rcloneSyncRcUser;
+    private String rcloneSyncRcPass;
+    private String rcloneSyncSourceFs;
+    private String rcloneSyncTargetFs;
+    private Boolean rcloneSyncCollectionUseSync;
+    private String rcloneSyncEpisodeInclude;
+    private String rcloneSyncExtraArgs;
 
     /**
      * 通知 状态
@@ -304,6 +317,21 @@ public class NotificationConfig implements Serializable {
                 .setOpenListUploadTask(false)
                 .setOpenListUploadDeleteLocalFile(true)
                 .setOpenListUploadDeleteOldEpisode(false);
+
+        notificationConfig
+                .setRcloneSyncSshHost("")
+                .setRcloneSyncSshPort(22)
+                .setRcloneSyncSshUser("root")
+                .setRcloneSyncSshBin("ssh")
+                .setRcloneSyncRcloneBin("rclone")
+                .setRcloneSyncRcUrl("http://127.0.0.1:5572")
+                .setRcloneSyncRcUser("")
+                .setRcloneSyncRcPass("")
+                .setRcloneSyncSourceFs("pikpak:/Anime/${title}/Season ${season}")
+                .setRcloneSyncTargetFs("onedrive:/Anime/${title}/Season ${season}")
+                .setRcloneSyncCollectionUseSync(true)
+                .setRcloneSyncEpisodeInclude("*S${seasonFormat}E${episodeFormat}*")
+                .setRcloneSyncExtraArgs("");
 
         return notificationConfig;
     }
