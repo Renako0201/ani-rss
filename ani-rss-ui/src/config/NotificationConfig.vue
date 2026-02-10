@@ -34,7 +34,11 @@
         <ShellNotification v-model:notification-config="notificationConfig" v-model:config="props.config"/>
         <FileMoveNotification v-model:notification-config="notificationConfig" v-model:config="props.config"/>
         <OpenListNotification v-model:config="props.config" v-model:notification-config="notificationConfig"/>
-        <RcloneSyncNotification v-model:config="props.config" v-model:notification-config="notificationConfig"/>
+        <RcloneSyncNotification
+            v-if="notificationConfig['notificationType'] === 'RCLONE_SYNC'"
+            v-model:config="props.config"
+            v-model:notification-config="notificationConfig"
+        />
         <el-form-item label="顺序">
           <div>
             <el-input-number
