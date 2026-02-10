@@ -1,7 +1,5 @@
-- feat: 增加通知顺序设置
-- feat: 将OpenList上传移至通知, 现在支持洗版上传了
-- refactor: 优化mikan页面
-
-[请不要将本项目在国内宣传](https://github.com/wushuo894/ani-rss/discussions/504)
-
-[从1.0升级至2.0的配置继承](https://github.com/wushuo894/ani-rss/discussions/427)
+- feat: 新增 Rclone 远程同步任务（SSH + rclone rc），支持番剧/合集场景。
+- feat: 新增 Rclone 同步任务面板，支持状态查看、速度展示与任务清理。
+- feat: 下载流程增加与 Rclone 同步队列联动，避免连续订阅时并发冲突。
+- fix: 修复通知配置页渲染异常，Rclone 配置仅在 Rclone 通知类型下显示。
+- fix: 修复多处中文文案和编码问题，统一使用 UTF-8。
