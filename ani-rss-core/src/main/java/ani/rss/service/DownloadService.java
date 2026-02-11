@@ -100,7 +100,6 @@ public class DownloadService {
             // .5 集
             boolean is5 = ItemsUtil.is5(episode);
 
-            // 已经下载过
             if (torrent.exists()) {
                 log.debug("种子记录已存在 {}", reName);
                 if (master && !is5) {
@@ -218,6 +217,9 @@ public class DownloadService {
                     continue;
                 }
             }
+
+            // 在写入种子记录前等待同步队列空闲，避免中途重启留下“孤立种子记录”导致后续误跳过。
+            waitRcloneSyncQueueIfNeeded(config, reName);
 
             File saveTorrent = TorrentUtil.saveTorrent(ani, item);
 
@@ -395,7 +397,6 @@ public class DownloadService {
         ThreadUtil.sleep(1000);
         savePath = FileUtils.getAbsolutePath(savePath);
         Config config = ConfigUtil.CONFIG;
-        waitRcloneSyncQueueIfNeeded(config, name);
 
         String text = StrFormatter.format("{} 已更新", name);
         if (!master) {
@@ -430,13 +431,14 @@ public class DownloadService {
         if (!rcloneSyncEnabledOnDownloadEnd(config)) {
             return;
         }
-        if (!RcloneSyncTaskService.hasActiveTasks()) {
+        // 等待 DOWNLOAD_END 通知队列与 Rclone 活跃任务都清空，避免下一集抢跑。
+        if (!NotificationUtil.hasPendingDownloadEndTasks() && !RcloneSyncTaskService.hasActiveTasks()) {
             return;
         }
         long start = System.currentTimeMillis();
         long maxWaitMs = 12L * 60 * 60 * 1000;
         long nextLogAt = start;
-        while (RcloneSyncTaskService.hasActiveTasks()) {
+        while (NotificationUtil.hasPendingDownloadEndTasks() || RcloneSyncTaskService.hasActiveTasks()) {
             long now = System.currentTimeMillis();
             if (now - start > maxWaitMs) {
                 log.warn("wait rclone sync timeout, continue download {}", name);
