@@ -32,6 +32,9 @@ public class RcloneSyncTaskService {
     private static final Set<String> ACTIVE_TASK_IDS = ConcurrentHashMap.newKeySet();
     private static final int MAX_HISTORY = 200;
     private static final String NET_MARK = "__ANIRSS_NET__";
+    private static final long MONITOR_INTERVAL_MS = 5000L;
+    private static final long MAX_MONITOR_MS = 12L * 60 * 60 * 1000;
+    private static final long MAX_DISCONNECT_MS = 30L * 60 * 1000;
 
     public static RcloneSyncTask createTask(
             String mode,
@@ -158,9 +161,9 @@ public class RcloneSyncTaskService {
         command.add(rcApi);
         command.add("srcFs=" + task.getSrcFs());
         command.add("dstFs=" + task.getDstFs());
-        // Execute synchronously in notification queue.
-        // This prevents concurrent syncs during continuous subscription downloads.
-        command.add("_async=false");
+        // Start rc task asynchronously on VPS and poll by jobid.
+        // This decouples transfer from local SSH session.
+        command.add("_async=true");
         command.add("_group=" + task.getGroup());
         if (CollUtil.isNotEmpty(args)) {
             command.addAll(args);
@@ -169,15 +172,14 @@ public class RcloneSyncTaskService {
         String remoteCommand = toRemoteCommand(command);
         String taskId = task.getId();
         task.setStatus("running")
-                .setMessage("running")
+                .setMessage("starting")
                 .setUpdateTime(System.currentTimeMillis());
         ACTIVE_TASK_IDS.add(taskId);
         long start = System.currentTimeMillis();
         try {
             log.info("RcloneSync execute start: id={} mode={} api={} src={} dst={} argsCount={}",
                     task.getId(), task.getMode(), rcApi, task.getSrcFs(), task.getDstFs(), ObjectUtil.defaultIfNull(args, List.of()).size());
-            // Long-running transfer: keep enough time for real file sync.
-            ExecResult result = execSsh(notificationConfig, remoteCommand, 60 * 60 * 6);
+            ExecResult result = execSsh(notificationConfig, remoteCommand, 60);
             if (result.exitCode != 0) {
                 task.setStatus("failed")
                         .setMessage(result.output)
@@ -186,23 +188,44 @@ public class RcloneSyncTaskService {
                         task.getId(), result.exitCode, System.currentTimeMillis() - start, shortOutput(result.output));
                 return result.output;
             }
-            task.setStatus("success")
-                    .setMessage("success")
+
+            Long jobId = parseJobId(result.output);
+            if (Objects.isNull(jobId) || jobId <= 0) {
+                task.setStatus("failed")
+                        .setMessage(StrUtil.blankToDefault(result.output, "rclone rc async start returned invalid jobid"))
+                        .setUpdateTime(System.currentTimeMillis());
+                log.warn("RcloneSync execute failed: id={} invalid jobid output={}", task.getId(), shortOutput(result.output));
+                return result.output;
+            }
+
+            task.setJobId(jobId)
+                    .setStatus("running")
+                    .setMessage("running")
                     .setUpdateTime(System.currentTimeMillis());
-            log.info("RcloneSync execute success: id={} cost={}ms output={}",
-                    task.getId(), System.currentTimeMillis() - start, shortOutput(result.output));
-            return result.output;
+            log.info("RcloneSync execute started: id={} jobid={} group={} cost={}ms",
+                    task.getId(), jobId, task.getGroup(), System.currentTimeMillis() - start);
+
+            String monitorResult = monitorTaskUntilDone(task, notificationConfig, start);
+            if ("success".equals(task.getStatus())) {
+                log.info("RcloneSync execute success: id={} jobid={} cost={}ms",
+                        task.getId(), jobId, System.currentTimeMillis() - start);
+            } else {
+                log.warn("RcloneSync execute failed: id={} jobid={} cost={}ms output={}",
+                        task.getId(), jobId, System.currentTimeMillis() - start, shortOutput(monitorResult));
+            }
+            return monitorResult;
         } finally {
             ACTIVE_TASK_IDS.remove(taskId);
         }
     }
 
-    public static void refreshTask(RcloneSyncTask task, NotificationConfig notificationConfig) {
+    public static boolean refreshTask(RcloneSyncTask task, NotificationConfig notificationConfig) {
         ExecResult statsResult = execSsh(
                 notificationConfig,
                 buildRcCommand(notificationConfig, "core/stats", List.of("group=" + task.getGroup())),
                 20
         );
+        boolean statsOk = statsResult.exitCode == 0;
         if (statsResult.exitCode == 0) {
             JsonObject stats = GsonStatic.fromJson(statsResult.output, JsonObject.class);
             task.setBytes(getLong(stats, "bytes"))
@@ -213,10 +236,9 @@ public class RcloneSyncTaskService {
                     .setUpdateTime(System.currentTimeMillis());
         }
 
-        // In sync mode (_async=false), rc won't return jobId.
-        // Keep stats refresh by group and skip job/status polling.
+        // In compatibility mode (no jobid), only stats can be refreshed.
         if (Objects.isNull(task.getJobId())) {
-            return;
+            return statsOk;
         }
 
         ExecResult jobResult = execSsh(
@@ -225,12 +247,26 @@ public class RcloneSyncTaskService {
                 20
         );
         if (jobResult.exitCode != 0) {
-            task.setMessage(jobResult.output)
+            String output = StrUtil.blankToDefault(jobResult.output, "");
+            if (StrUtil.containsAnyIgnoreCase(output, "job not found", "not found")) {
+                task.setStatus("failed")
+                        .setMessage(output)
+                        .setUpdateTime(System.currentTimeMillis());
+                return false;
+            }
+            task.setStatus("running")
+                    .setMessage(StrUtil.blankToDefault(output, "rclone job poll failed"))
                     .setUpdateTime(System.currentTimeMillis());
-            return;
+            return false;
         }
 
         JsonObject statusJson = GsonStatic.fromJson(jobResult.output, JsonObject.class);
+        if (Objects.isNull(statusJson)) {
+            task.setStatus("running")
+                    .setMessage(StrUtil.blankToDefault(jobResult.output, "rclone job poll failed"))
+                    .setUpdateTime(System.currentTimeMillis());
+            return false;
+        }
         boolean finished = getBoolean(statusJson, "finished");
         boolean success = getBoolean(statusJson, "success");
         String error = getString(statusJson, "error");
@@ -238,12 +274,90 @@ public class RcloneSyncTaskService {
             task.setStatus("running")
                     .setMessage(StrUtil.blankToDefault(error, "running"))
                     .setUpdateTime(System.currentTimeMillis());
-            return;
+            return true;
         }
 
         task.setStatus(success ? "success" : "failed")
                 .setMessage(StrUtil.blankToDefault(error, success ? "success" : "failed"))
                 .setUpdateTime(System.currentTimeMillis());
+        return true;
+    }
+
+    private static String monitorTaskUntilDone(RcloneSyncTask task, NotificationConfig notificationConfig, long start) {
+        long deadline = start + MAX_MONITOR_MS;
+        long disconnectSince = 0L;
+        while (System.currentTimeMillis() <= deadline) {
+            boolean pollOk;
+            try {
+                pollOk = refreshTask(task, notificationConfig);
+            } catch (Exception e) {
+                pollOk = false;
+                task.setStatus("running")
+                        .setMessage(StrUtil.blankToDefault(e.getMessage(), "rclone job poll exception"))
+                        .setUpdateTime(System.currentTimeMillis());
+            }
+
+            if ("success".equals(task.getStatus()) || "failed".equals(task.getStatus())) {
+                return StrUtil.blankToDefault(task.getMessage(), task.getStatus());
+            }
+
+            if (pollOk) {
+                disconnectSince = 0L;
+            } else {
+                if (disconnectSince == 0L) {
+                    disconnectSince = System.currentTimeMillis();
+                }
+                long downMs = System.currentTimeMillis() - disconnectSince;
+                if (downMs > MAX_DISCONNECT_MS) {
+                    task.setStatus("failed")
+                            .setMessage("rclone job polling disconnected for too long")
+                            .setUpdateTime(System.currentTimeMillis());
+                    return task.getMessage();
+                }
+            }
+
+            try {
+                Thread.sleep(MONITOR_INTERVAL_MS);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                task.setStatus("failed")
+                        .setMessage("rclone job polling interrupted")
+                        .setUpdateTime(System.currentTimeMillis());
+                return task.getMessage();
+            }
+        }
+
+        task.setStatus("failed")
+                .setMessage("rclone job monitor timeout")
+                .setUpdateTime(System.currentTimeMillis());
+        return task.getMessage();
+    }
+
+    private static Long parseJobId(String output) {
+        JsonObject jsonObject = parseJsonObject(output);
+        if (Objects.isNull(jsonObject)) {
+            return null;
+        }
+        long jobId = getLong(jsonObject, "jobid");
+        return jobId > 0 ? jobId : null;
+    }
+
+    private static JsonObject parseJsonObject(String output) {
+        output = StrUtil.blankToDefault(output, "");
+        try {
+            return GsonStatic.fromJson(output, JsonObject.class);
+        } catch (Exception ignored) {
+        }
+
+        int first = output.indexOf('{');
+        int last = output.lastIndexOf('}');
+        if (first >= 0 && last > first) {
+            try {
+                return GsonStatic.fromJson(output.substring(first, last + 1), JsonObject.class);
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
     }
 
     private static String buildRcCommand(NotificationConfig notificationConfig, String api, List<String> args) {
