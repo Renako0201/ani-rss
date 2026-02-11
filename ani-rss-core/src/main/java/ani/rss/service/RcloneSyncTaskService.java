@@ -112,6 +112,17 @@ public class RcloneSyncTaskService {
         return !ACTIVE_TASK_IDS.isEmpty();
     }
 
+    public static boolean hasActiveTasks(String mode) {
+        if (StrUtil.isBlank(mode)) {
+            return hasActiveTasks();
+        }
+        return TASK_MAP.values().stream()
+                .anyMatch(task ->
+                        Objects.equals(mode, task.getMode()) &&
+                                List.of("queued", "running").contains(task.getStatus())
+                );
+    }
+
     public static String probe(NotificationConfig notificationConfig) {
         String command = buildRcCommand(notificationConfig, "core/version", List.of());
         String host = StrUtil.blankToDefault(notificationConfig.getRcloneSyncSshHost(), "-");
