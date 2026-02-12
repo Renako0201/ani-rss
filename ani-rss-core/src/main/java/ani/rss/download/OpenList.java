@@ -36,6 +36,8 @@ import java.util.stream.Stream;
 public class OpenList implements BaseDownload {
     private Config config;
     private static final long API_MIN_INTERVAL_MS = 150;
+    private static final int ADD_OFFLINE_TIMEOUT_MS = 60_000;
+    private static final int ADD_OFFLINE_MAX_RETRY = 3;
 
     @Override
     public Boolean login(Boolean test, Config config) {
@@ -108,22 +110,7 @@ public class OpenList implements BaseDownload {
                             log.info("已开启备用RSS, 自动删除 {}/{}", finalSavePath, name);
                         });
             }
-            String tid = postApi("fs/add_offline_download")
-                    .body(GsonStatic.toJson(Map.of(
-                            "path", path,
-                            "urls", List.of(magnet),
-                            "tool", config.getProvider(),
-                            "delete_policy", "delete_on_upload_succeed"
-                    )))
-                    .thenFunction(res -> {
-                        JsonObject jsonObject = GsonStatic.fromJson(res.body(), JsonObject.class);
-                        Assert.isTrue(jsonObject.get("code").getAsInt() == 200, "添加离线下载失败 {}", reName);
-                        log.info("添加离线下载成功 {}", reName);
-                        return jsonObject.getAsJsonObject("data")
-                                .getAsJsonArray("tasks")
-                                .get(0).getAsJsonObject()
-                                .get("id").getAsString();
-                    });
+            String tid = addOfflineDownloadTask(path, magnet, reName);
 
             TimeInterval timer = DateUtil.timer();
             // 重试次数
@@ -262,6 +249,50 @@ public class OpenList implements BaseDownload {
             log.error(e.getMessage(), e);
         }
         return false;
+    }
+
+    private String addOfflineDownloadTask(String path, String magnet, String reName) {
+        String provider = config.getProvider();
+        Assert.notBlank(provider, "请选择 Driver");
+
+        String requestBody = GsonStatic.toJson(Map.of(
+                "path", path,
+                "urls", List.of(magnet),
+                "tool", provider,
+                "delete_policy", "delete_on_upload_succeed"
+        ));
+
+        Exception lastException = null;
+        for (int attempt = 1; attempt <= ADD_OFFLINE_MAX_RETRY; attempt++) {
+            long start = System.currentTimeMillis();
+            log.info("开始添加离线下载 {} (attempt {}/{}) path={}", reName, attempt, ADD_OFFLINE_MAX_RETRY, path);
+            try {
+                String tid = postApi("fs/add_offline_download")
+                        .timeout(ADD_OFFLINE_TIMEOUT_MS)
+                        .body(requestBody)
+                        .thenFunction(res -> {
+                            JsonObject jsonObject = GsonStatic.fromJson(res.body(), JsonObject.class);
+                            int code = jsonObject.get("code").getAsInt();
+                            Assert.isTrue(code == 200, "添加离线下载失败 code={} msg={}", code,
+                                    StrUtil.blankToDefault(jsonObject.get("message").getAsString(), ""));
+                            return jsonObject.getAsJsonObject("data")
+                                    .getAsJsonArray("tasks")
+                                    .get(0).getAsJsonObject()
+                                    .get("id").getAsString();
+                        });
+                log.info("添加离线下载成功 {} tid={} cost={}ms", reName, tid, System.currentTimeMillis() - start);
+                return tid;
+            } catch (Exception e) {
+                lastException = e;
+                String message = ExceptionUtils.getMessage(e);
+                log.warn("添加离线下载失败 {} (attempt {}/{}) cost={}ms error={}",
+                        reName, attempt, ADD_OFFLINE_MAX_RETRY, System.currentTimeMillis() - start, message);
+                if (attempt < ADD_OFFLINE_MAX_RETRY) {
+                    ThreadUtil.sleep(1000L * attempt);
+                }
+            }
+        }
+        throw new RuntimeException(StrFormatter.format("添加离线下载失败 {} (已重试{}次)", reName, ADD_OFFLINE_MAX_RETRY), lastException);
     }
 
     @Override
