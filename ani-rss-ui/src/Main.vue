@@ -21,7 +21,10 @@ let linkConfig = reactive({
 })
 
 let dialogConfig = reactive({
-  alignCenter: true
+  alignCenter: true,
+  // 页面主体使用内部 el-scrollbar，不依赖 body 滚动。
+  // 关闭 dialog 的 body 锁滚动，避免打开弹窗时 body 宽度补偿导致布局抖动。
+  lockScroll: false
 })
 
 init()
