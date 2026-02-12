@@ -1,6 +1,6 @@
 <template>
-  <ImportAni ref="importAniRef" @callback="getList"/>
-  <Del ref="refDel" @callback="getList"/>
+  <ImportAni ref="importAniRef" @callback="handleDataChanged"/>
+  <Del ref="refDel" @callback="handleDataChanged"/>
   <el-dialog v-model="dialogVisible" center title="管理">
     <div class="manage-content" v-loading="loading">
       <div class="manage-header">
@@ -214,17 +214,23 @@ let show = () => {
 
 const list = ref([])
 
-const getList = () => {
+const getList = (reloadMain = false) => {
   loading.value = true
   api.get('api/ani')
       .then(res => {
         list.value = res.data
         selectChange()
-        window.$reLoadList()
+        if (reloadMain) {
+          window.$reLoadList()
+        }
       })
       .finally(() => {
         loading.value = false
       })
+}
+
+const handleDataChanged = () => {
+  getList(true)
 }
 
 let selectList = ref([])
@@ -261,7 +267,7 @@ let batchEnable = (value) => {
         ElMessage.success(res.message)
       })
       .finally(() => {
-        getList()
+        getList(true)
       })
 }
 
@@ -272,7 +278,7 @@ let updateTotalEpisodeNumber = (force) => {
   api.post('api/ani?type=updateTotalEpisodeNumber&force=' + force, ids)
       .then(res => {
         ElMessage.success(res.message)
-        getList()
+        getList(true)
       })
 }
 
