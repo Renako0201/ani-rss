@@ -36,6 +36,7 @@ import java.util.stream.Stream;
 public class OpenList implements BaseDownload {
     private Config config;
     private static final long API_MIN_INTERVAL_MS = 150;
+    private static final int API_CALL_TIMEOUT_MS = 30_000;
     private static final int ADD_OFFLINE_TIMEOUT_MS = 60_000;
     private static final int ADD_OFFLINE_MAX_RETRY = 3;
 
@@ -93,8 +94,10 @@ public class OpenList implements BaseDownload {
         Boolean delete = config.getDelete();
         Boolean coexist = config.getCoexist();
         try {
+            log.info("OpenList 下载开始 {} path={}", reName, path);
             // 洗版，删除备 用RSS 所下载的视频
             if (standbyRss && delete && !coexist) {
+                log.info("OpenList 清理备用RSS旧文件 {} dir={}", reName, savePath);
                 String s = ReUtil.get(StringEnum.SEASON_REG, reName, 0);
                 String finalSavePath = savePath;
                 ls(savePath)
@@ -109,12 +112,16 @@ public class OpenList implements BaseDownload {
                                     ))).then(HttpResponse::isOk);
                             log.info("已开启备用RSS, 自动删除 {}/{}", finalSavePath, name);
                         });
+                log.info("OpenList 清理备用RSS旧文件完成 {}", reName);
             }
+            log.info("OpenList 准备添加离线下载 {}", reName);
             String tid = addOfflineDownloadTask(path, magnet, reName);
+            log.info("OpenList 离线任务创建完成 {} tid={}", reName, tid);
 
             TimeInterval timer = DateUtil.timer();
             // 重试次数
             long retry = 0;
+            long lastProgressLogMs = 0L;
             while (true) {
                 Integer alistDownloadTimeout = config.getAlistDownloadTimeout();
                 Long alistDownloadRetryNumber = config.getAlistDownloadRetryNumber();
@@ -124,6 +131,9 @@ public class OpenList implements BaseDownload {
                     log.error("{} {} 分钟还未下载完成, 停止检测下载", reName, alistDownloadTimeout);
                     return false;
                 }
+
+                // 轮询间隔，避免高频请求导致日志噪音和额外压力
+                ThreadUtil.sleep(5000);
 
                 // https://github.com/AlistGo/alist/blob/main/pkg/task/task.go
                 JsonObject taskInfo;
@@ -138,6 +148,11 @@ public class OpenList implements BaseDownload {
                 String error = taskInfo.get("error").getAsString();
                 int state = taskInfo
                         .get("state").getAsInt();
+                long now = System.currentTimeMillis();
+                if (now - lastProgressLogMs >= 15000) {
+                    log.info("OpenList 离线任务状态 {} tid={} state={}", reName, tid, state);
+                    lastProgressLogMs = now;
+                }
                 // errored 重试
                 if (state > 5) {
                     // 已到达最大重试次数 5 次, -1 不限制
@@ -204,6 +219,7 @@ public class OpenList implements BaseDownload {
 
             if (rename) {
                 // 重命名
+                log.info("OpenList 准备重命名 {} files={}", reName, renameMap.size());
                 List<Map<String, String>> rename_objects = renameMap.entrySet().stream()
                         .map(map -> {
                             String srcName = map.getKey();
@@ -226,6 +242,7 @@ public class OpenList implements BaseDownload {
                     .stream()
                     .map(m -> rename ? m.getValue() : m.getKey())
                     .toList();
+            log.info("OpenList 准备移动文件 {} files={} {} => {}", reName, names.size(), videoFile.getPath(), savePath);
             postApi("fs/move")
                     .body(GsonStatic.toJson(Map.of(
                             "src_dir", videoFile.getPath(),
@@ -239,6 +256,7 @@ public class OpenList implements BaseDownload {
                             "dir", savePath,
                             "names", List.of(reName)
                     ))).then(HttpResponse::isOk);
+            log.info("OpenList 下载流程完成 {}", reName);
 
             NotificationUtil.send(config, ani,
                     StrFormatter.format("{} 下载完成", item.getReName()),
@@ -373,6 +391,7 @@ public class OpenList implements BaseDownload {
      */
     public JsonObject taskInfo(String tid) {
         return postApi("task/offline_download/info?tid=" + tid)
+                .timeout(API_CALL_TIMEOUT_MS)
                 .thenFunction(res -> {
                     JsonObject jsonObject = GsonStatic.fromJson(res.body(), JsonObject.class);
                     return jsonObject.get("data").getAsJsonObject();
@@ -649,6 +668,7 @@ public class OpenList implements BaseDownload {
         String host = config.getDownloadToolHost();
         String password = config.getDownloadToolPassword();
         return HttpReq.post(host + "/api/" + action)
+                .timeout(API_CALL_TIMEOUT_MS)
                 .header(Header.AUTHORIZATION, password);
     }
 
