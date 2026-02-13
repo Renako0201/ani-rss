@@ -406,6 +406,7 @@ public class DownloadService {
 
         Integer downloadRetry = config.getDownloadRetry();
         for (int i = 1; i <= downloadRetry; i++) {
+            log.info("开始下载重试 {} (attempt {}/{})", name, i, downloadRetry);
             try {
                 if (TorrentUtil.DOWNLOAD.download(ani, item, savePath, torrentFile, ova)) {
                     return;

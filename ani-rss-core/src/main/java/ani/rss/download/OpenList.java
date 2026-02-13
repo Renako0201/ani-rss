@@ -87,8 +87,10 @@ public class OpenList implements BaseDownload {
         // windows 真该死啊
         savePath = ReUtil.replaceAll(savePath, "^[A-z]:", "");
 
-        String magnet = TorrentUtil.getMagnet(torrentFile);
         String reName = item.getReName();
+        log.info("OpenList 开始准备磁力链接 {}", reName);
+        String magnet = TorrentUtil.getMagnet(torrentFile);
+        log.info("OpenList 磁力链接准备完成 {}", reName);
         String path = savePath + "/" + reName;
         Boolean standbyRss = config.getStandbyRss();
         Boolean delete = config.getDelete();
