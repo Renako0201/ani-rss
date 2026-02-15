@@ -80,6 +80,12 @@
                               {{ it.title }}
                             </el-text>
                           </div>
+                          <el-tag v-if="bgmStatusText(it.url)"
+                                  size="small"
+                                  effect="plain"
+                                  class="bgm-status-tag">
+                            {{ bgmStatusText(it.url) }}
+                          </el-tag>
                           <div v-if="it['score'] > 0" class="score-margin">
                             <h4 class="score-color">
                               {{ it['score'].toFixed(1) }}
@@ -177,6 +183,42 @@ let data = ref({
 })
 
 let season = ref('')
+let bgmStatusMap = ref({})
+let bgmStatusLoading = ref(false)
+let mikanToSubjectIdMap = ref({})
+const BGM_STATUS_CACHE_KEY = 'mikan_bgm_status_map_v1'
+const MIKAN_SUBJECT_CACHE_KEY = 'mikan_subject_map_v1'
+const BGM_STATUS_CACHE_EXPIRE = 30 * 60 * 1000
+const MIKAN_SUBJECT_CACHE_EXPIRE = 7 * 24 * 60 * 60 * 1000
+
+let readCacheMap = (key, expireMs) => {
+  try {
+    let raw = localStorage.getItem(key)
+    if (!raw) {
+      return null
+    }
+    let parsed = JSON.parse(raw)
+    let ts = Number(parsed?.ts ?? 0)
+    let data = parsed?.data
+    if (!ts || !data || Date.now() - ts > expireMs) {
+      return null
+    }
+    return data
+  } catch (e) {
+    return null
+  }
+}
+
+let writeCacheMap = (key, data) => {
+  try {
+    localStorage.setItem(key, JSON.stringify({
+      ts: Date.now(),
+      data
+    }))
+  } catch (e) {
+    // ignore
+  }
+}
 
 let show = (name) => {
   season.value = ''
@@ -186,7 +228,10 @@ let show = (name) => {
     'seasons': [],
     'items': []
   }
+  bgmStatusMap.value = readCacheMap(BGM_STATUS_CACHE_KEY, BGM_STATUS_CACHE_EXPIRE) ?? {}
+  mikanToSubjectIdMap.value = readCacheMap(MIKAN_SUBJECT_CACHE_KEY, MIKAN_SUBJECT_CACHE_EXPIRE) ?? {}
   rssList.value = []
+  syncBangumiStatus()
   if (name) {
     name = name.replace(/ ?\((19|20)\d{2}\)/g, "").trim()
     name = name.replace(/ ?\[tmdbid=(\d+)]/g, "").trim()
@@ -229,6 +274,7 @@ let list = async (body, text) => {
           data.value.seasons = seasons
         }
         data.value.items = items
+        syncMikanToBangumiSubjectId()
         if (items.length) {
           activeName.value = items[0].label
         }
@@ -248,6 +294,102 @@ let change = (v) => {
   let body = data.value.seasons.filter(item => (item['year'] + ' ' + item['season']) === v)
   if (body.length) {
     list(body[0])
+  }
+}
+
+let getSubjectIdByBgmUrl = (url) => {
+  if (!url) {
+    return ''
+  }
+  let match = url.match(/\/subject\/(\d+)/)
+  if (!match) {
+    return ''
+  }
+  return match[1]
+}
+
+let getMikanBangumiIdByUrl = (url) => {
+  if (!url) {
+    return ''
+  }
+  let match = url.match(/\/Home\/Bangumi\/(\d+)/i)
+  if (!match) {
+    return ''
+  }
+  return match[1]
+}
+
+let syncMikanToBangumiSubjectId = async () => {
+  let mikanIds = data.value.items
+      .flatMap(group => group.items)
+      .map(item => getMikanBangumiIdByUrl(item.url))
+      .filter(Boolean)
+
+  mikanIds = [...new Set(mikanIds)]
+      .filter(id => !mikanToSubjectIdMap.value[id])
+
+  if (!mikanIds.length) {
+    return
+  }
+
+  const newMap = {...mikanToSubjectIdMap.value}
+
+  for (let i = 0; i < mikanIds.length; i += 8) {
+    let chunk = mikanIds.slice(i, i + 8)
+    await Promise.all(chunk.map(async (id) => {
+      try {
+        let res = await api.get(`api/mikan?type=bgmUrl&bangumiId=${id}`)
+        let subjectId = getSubjectIdByBgmUrl(res.data)
+        if (subjectId) {
+          newMap[id] = subjectId
+        }
+      } catch (e) {
+        // ignore
+      }
+    }))
+  }
+
+  mikanToSubjectIdMap.value = newMap
+  writeCacheMap(MIKAN_SUBJECT_CACHE_KEY, newMap)
+}
+
+let bgmStatusText = (url) => {
+  let statusMap = {
+    1: '想看',
+    2: '看过',
+    3: '在看',
+    4: '搁置',
+    5: '抛弃'
+  }
+  let subjectId = getSubjectIdByBgmUrl(url)
+  if (!subjectId) {
+    let mikanId = getMikanBangumiIdByUrl(url)
+    if (mikanId) {
+      subjectId = mikanToSubjectIdMap.value[mikanId]
+    }
+  }
+  if (!subjectId) {
+    return ''
+  }
+  return statusMap[Number(bgmStatusMap.value[subjectId])] ?? ''
+}
+
+let syncBangumiStatus = async () => {
+  if (Object.keys(bgmStatusMap.value).length > 0) {
+    return
+  }
+  if (bgmStatusLoading.value) {
+    return
+  }
+  bgmStatusLoading.value = true
+  try {
+    let res = await api.get('api/bgm?type=collectionsMap&max=500')
+    bgmStatusMap.value = res.data ?? {}
+    writeCacheMap(BGM_STATUS_CACHE_KEY, bgmStatusMap.value)
+  } catch (e) {
+    // 已由统一请求层处理提示，这里保持静默
+  } finally {
+    bgmStatusLoading.value = false
   }
 }
 
@@ -321,7 +463,6 @@ let batchAddition = async () => {
   batchAdditionNum.value = 0
   batchAdditionDialogVisible.value = true
   let getBangumiId = (url) => {
-    console.log(url);
     const parsedUrl = new URL(url);
     return parsedUrl.searchParams.get('bangumiId');
   };
@@ -461,6 +602,10 @@ let openUrl = (url) => window.open(url)
 
 .score-margin {
   margin-left: 4px;
+}
+
+.bgm-status-tag {
+  margin-left: 6px;
 }
 
 .score-color {

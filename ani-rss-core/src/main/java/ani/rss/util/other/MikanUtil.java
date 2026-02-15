@@ -1,5 +1,6 @@
 package ani.rss.util.other;
 
+import ani.rss.commons.CacheUtils;
 import ani.rss.commons.GsonStatic;
 import ani.rss.entity.*;
 import ani.rss.util.basic.HttpReq;
@@ -23,6 +24,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -433,6 +435,34 @@ public class MikanUtil {
             log.error(e.getMessage(), e);
         }
         return jsonObject;
+    }
+
+    /**
+     * 通过 mikan bangumiId 获取 bgm url，并使用缓存降低请求量
+     *
+     * @param bangumiId mikan bangumiId
+     * @return bgm url
+     */
+    public static String getBgmUrlByBangumiId(String bangumiId) {
+        if (StrUtil.isBlank(bangumiId)) {
+            return "";
+        }
+
+        String key = "Mikan_getBgmUrlByBangumiId:" + bangumiId;
+        if (CacheUtils.containsKey(key)) {
+            return CacheUtils.get(key);
+        }
+
+        String bgmUrl = "";
+        try {
+            MikanInfo mikanInfo = getMikanInfo(bangumiId);
+            bgmUrl = StrUtil.blankToDefault(mikanInfo.getBgmUrl(), "");
+        } catch (Exception e) {
+            log.warn("获取 bgmUrl 失败 bangumiId={}", bangumiId);
+        }
+
+        CacheUtils.put(key, bgmUrl, TimeUnit.DAYS.toMillis(1));
+        return bgmUrl;
     }
 
 }

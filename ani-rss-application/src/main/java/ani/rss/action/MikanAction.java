@@ -18,6 +18,13 @@ import java.io.IOException;
 public class MikanAction implements BaseAction {
     @Override
     public void doAction(HttpServerRequest request, HttpServerResponse response) throws IOException {
+        String type = request.getParam("type");
+        if ("bgmUrl".equals(type)) {
+            String bangumiId = request.getParam("bangumiId");
+            resultSuccess(MikanUtil.getBgmUrlByBangumiId(bangumiId));
+            return;
+        }
+
         String text = request.getParam("text");
         Mikan.Season season = getBody(Mikan.Season.class);
         resultSuccess(MikanUtil.list(text, season));

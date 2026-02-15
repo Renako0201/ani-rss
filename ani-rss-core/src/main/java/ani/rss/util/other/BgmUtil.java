@@ -314,6 +314,132 @@ public class BgmUtil {
     }
 
     /**
+     * 按收藏状态获取番剧列表
+     *
+     * @param collectionType 收藏状态:
+     *                       1 想看(wish), 2 看过(collect), 3 在看(do), 4 搁置(on_hold), 5 抛弃(dropped)
+     * @param max            最大返回数量
+     * @return 列表(返回 subject 并附带 collectionType 字段)
+     */
+    public static List<JsonObject> getCollectionSubjects(Integer collectionType, Integer max) {
+        String bgmToken = ConfigUtil.CONFIG.getBgmToken();
+        if (StrUtil.isBlank(bgmToken)) {
+            return new ArrayList<>();
+        }
+
+        if (Objects.isNull(collectionType) || collectionType < 1 || collectionType > 5) {
+            collectionType = 3;
+        }
+        if (Objects.isNull(max) || max < 1) {
+            max = 100;
+        }
+
+        String cacheKey = "BGM_getCollectionSubjects:" + bgmToken + ":" + collectionType + ":" + max;
+        List<JsonObject> cacheList = CacheUtils.get(cacheKey);
+        if (Objects.nonNull(cacheList)) {
+            return cacheList;
+        }
+
+        String username = username();
+        int limit = 24;
+        int offset = 0;
+
+        List<JsonObject> result = new ArrayList<>();
+
+        while (result.size() < max) {
+            int requestLimit = Math.min(limit, max - result.size());
+            JsonObject jsonObject = setToken(HttpReq.get(host + "/v0/users/" + username + "/collections"))
+                    .form("subject_type", 2)
+                    .form("type", collectionType)
+                    .form("limit", requestLimit)
+                    .form("offset", offset)
+                    .thenFunction(res -> {
+                        HttpReq.assertStatus(res);
+                        return GsonStatic.fromJson(res.body(), JsonObject.class);
+                    });
+
+            JsonArray data = Opt.ofNullable(jsonObject.getAsJsonArray("data"))
+                    .orElse(new JsonArray());
+
+            if (data.isEmpty()) {
+                break;
+            }
+
+            for (JsonElement itemElement : data) {
+                JsonObject itemObject = itemElement.getAsJsonObject();
+                JsonObject subjectObject = itemObject.getAsJsonObject("subject");
+                if (Objects.isNull(subjectObject)) {
+                    continue;
+                }
+
+                JsonObject copy = GsonStatic.fromJson(GsonStatic.toJson(subjectObject), JsonObject.class);
+                JsonElement type = itemObject.get("type");
+                if (Objects.nonNull(type)) {
+                    copy.add("collectionType", type);
+                } else {
+                    copy.addProperty("collectionType", collectionType);
+                }
+                if (!copy.has("url") && copy.has("id")) {
+                    copy.addProperty("url", "https://bgm.tv/subject/" + copy.get("id").getAsString());
+                }
+                result.add(copy);
+                if (result.size() >= max) {
+                    break;
+                }
+            }
+
+            if (data.size() < requestLimit) {
+                break;
+            }
+            offset += requestLimit;
+        }
+
+        CacheUtils.put(cacheKey, result, TimeUnit.MINUTES.toMillis(10));
+        return result;
+    }
+
+    /**
+     * 获取收藏状态映射(subjectId -> type)
+     *
+     * @param max 每个状态最大拉取数量
+     * @return subjectId -> 收藏状态
+     */
+    public static Map<String, Integer> getCollectionStatusMap(Integer max) {
+        String bgmToken = ConfigUtil.CONFIG.getBgmToken();
+        if (StrUtil.isBlank(bgmToken)) {
+            return new HashMap<>();
+        }
+
+        if (Objects.isNull(max) || max < 1) {
+            max = 500;
+        }
+
+        String cacheKey = "BGM_getCollectionStatusMap:" + bgmToken + ":" + max;
+        Map<String, Integer> cacheMap = CacheUtils.get(cacheKey);
+        if (Objects.nonNull(cacheMap)) {
+            return cacheMap;
+        }
+
+        Map<String, Integer> statusMap = new HashMap<>();
+        for (int type : List.of(1, 2, 3, 4, 5)) {
+            List<JsonObject> list = getCollectionSubjects(type, max);
+            for (JsonObject item : list) {
+                if (!item.has("id")) {
+                    continue;
+                }
+                String subjectId = item.get("id").getAsString();
+                int collectionType = Opt.ofNullable(item.get("collectionType"))
+                        .map(JsonElement::getAsInt)
+                        .orElse(type);
+                statusMap.put(subjectId, collectionType);
+            }
+        }
+
+        CacheUtils.put(cacheKey, statusMap, TimeUnit.MINUTES.toMillis(10));
+        return statusMap;
+    }
+
+    /**
      * 收藏番剧
      *
      * @param subjectId 番剧id

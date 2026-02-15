@@ -6,7 +6,7 @@
 
     <groupId>ani.rss</groupId>
     <artifactId>ani-rss</artifactId>
-    <version>2.5.4.0</version>
+    <version>2.5.5.0</version>
     <packaging>pom</packaging>
     <organization>
         <name>wushuo894</name>
@@ -188,4 +188,5 @@
     </build>
 
 </project>
+
 
