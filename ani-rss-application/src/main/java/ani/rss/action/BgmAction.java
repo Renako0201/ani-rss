@@ -7,6 +7,7 @@ import ani.rss.util.other.BgmUtil;
 import ani.rss.web.action.BaseAction;
 import ani.rss.web.annotation.Auth;
 import ani.rss.web.annotation.Path;
+import cn.hutool.core.convert.Convert;
 import cn.hutool.core.lang.Opt;
 import cn.hutool.http.server.HttpServerRequest;
 import cn.hutool.http.server.HttpServerResponse;
@@ -65,6 +66,15 @@ public class BgmAction implements BaseAction {
                 JsonObject me = BgmUtil.me();
                 me.addProperty("expires_days", expiresDays);
                 resultSuccess(me);
+            }
+            case "collections" -> {
+                Integer collectionType = Convert.toInt(request.getParam("collectionType"), 3);
+                Integer max = Convert.toInt(request.getParam("max"), 100);
+                resultSuccess(BgmUtil.getCollectionSubjects(collectionType, max));
+            }
+            case "collectionsMap" -> {
+                Integer max = Convert.toInt(request.getParam("max"), 500);
+                resultSuccess(BgmUtil.getCollectionStatusMap(max));
             }
         }
 

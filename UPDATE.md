@@ -1,16 +1,10 @@
-- release: v2.5.4.0
-- refactor: 优化管理列表加载
-- refactor: 优化删除确认框
-- refactor: 优化 OpenList 上传
-- feat: 新增 Rclone 远程同步任务（SSH + rclone rc），支持番剧/合集场景。
-- feat: 新增 Rclone 同步任务面板，支持状态查看、速度展示与任务清理。
-- feat: 下载流程增加与 Rclone 同步队列联动，避免连续订阅时并发冲突。
-- fix: 优化下载日志与并发表现（补充重试/磁力准备日志，移除 getMagnet 同步锁）。
-- fix: 优化 OpenList 下载稳定性（API 超时控制、轮询节流、关键流程日志增强）。
-- fix: 修复打开“管理”弹窗时背景页闪黑（避免打开时强制刷新主列表）。
-- fix: 修复打开弹窗时列表网格宽度抖动的问题（关闭 Dialog 的 body 锁滚动补偿）。
-- fix: 修复通知配置页渲染异常，Rclone 配置仅在 Rclone 通知类型下显示。
-- fix: 修复多处中文文案和编码问题，统一使用 UTF-8。
+- release: v2.5.5.0
+- feat: 新增 Bangumi 收藏状态同步接口，支持想看/看过/在看/搁置/抛弃状态映射。
+- feat: 在 Mikan 添加页条目旁展示 Bangumi 账户状态标签。
+- feat: 新增 mikanId -> Bangumi subjectId 转换链路，解决 Mikan 与 Bangumi ID 不一致导致状态不显示的问题。
+- refactor: 优化 Mikan/Bangumi 状态同步请求链路，新增 `collectionsMap` 单接口聚合拉取。
+- perf: 新增多层缓存（后端内存缓存 + 前端 localStorage 缓存），显著减少重复请求与等待时间。
+- fix: 修复 Mikan 页面 Bangumi 状态偶发不显示与匹配失败问题。
 
 [请不要将本项目在国内宣传](https://github.com/wushuo894/ani-rss/discussions/504)
 
